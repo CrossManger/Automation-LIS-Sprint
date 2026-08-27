@@ -10,7 +10,7 @@ pipeline {
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
         choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
         string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer')
+        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (Ví dụ: Team MAX là 786)')
         string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
         file(name: 'STRUCTURE_FILE_UPLOAD', description: 'Structure File (Template)')
         file(name: 'WORK_ITEMS_FILE_UPLOAD', description: 'Work Items File')
