@@ -2,23 +2,18 @@ pipeline {
     agent any
 
     parameters {
-        // 1. Thông tin đăng nhập LIS (Nhập trực tiếp mỗi lần bấm Build, mật khẩu tự động che dấu sao)
-        string(name: 'LIS_USERNAME', defaultValue: '', description: '👤 Tài khoản LIS (Username)* [BẮT BUỘC - Ví dụ: minhvh]')
-        password(name: 'LIS_PASSWORD', defaultValue: '', description: '🔒 Mật khẩu LIS (Password)* [BẮT BUỘC - Sẽ tự động che ký tự dấu sao ••••]')
-
-        // 2. Thông tin Sprint & Dự án
-        string(name: 'NAME_SPRINT', defaultValue: '', description: 'Tên Sprint (Name Sprint)* [BẮT BUỘC - Ví dụ: 2026 Oct 01 Sprint]')
-        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)* [BẮT BUỘC - Ví dụ: 2026-10-01]')
-        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)* [BẮT BUỘC - Ví dụ: 2026-10-17]')
+        string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username*')
+        password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password*')
+        string(name: 'NAME_SPRINT', defaultValue: '', description: 'Name Sprint*')
+        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date* (YYYY-MM-DD)')
+        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date* (YYYY-MM-DD)')
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
         choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (Người được giao)* [BẮT BUỘC - Ví dụ: Trang Pham-Tran-Minh]')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer* [BẮT BUỘC - Ví dụ: 786]')
-        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer* [BẮT BUỘC - Ví dụ: minhvh]')
-        
-        // 3. Tải trực tiếp 2 file Excel từ máy tính lên Jenkins
-        file(name: 'STRUCTURE_FILE_UPLOAD', description: '📁 Tải lên file Structure Template (.xlsx)* [BẮT BUỘC]')
-        file(name: 'WORK_ITEMS_FILE_UPLOAD', description: '📁 Tải lên file Work Items (.xlsx)* [BẮT BUỘC]')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee*')
+        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer*')
+        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer*')
+        file(name: 'STRUCTURE_FILE_UPLOAD', description: 'Structure File (Template)*')
+        file(name: 'WORK_ITEMS_FILE_UPLOAD', description: 'Work Items File*')
     }
 
     environment {
