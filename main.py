@@ -614,16 +614,16 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
 # HÀM CHÍNH
 # ============================================================
 
-def run_automation(data_file_path: str = "sprint_data.json"):
+def run_automation(data_file_path: str | None = None):
     """Chạy toàn bộ quy trình tự động hóa LIS + Importer."""
 
-    # 1. Đọc dữ liệu sprint / milestone từ file JSON
+    # 1. Đọc dữ liệu sprint / milestone từ file hoặc biến môi trường Jenkins
     try:
         milestone = load_milestone_from_file(data_file_path)
         sprint_name = get_sprint_name(milestone)
-        print(f"[✓] Đã đọc dữ liệu từ '{data_file_path}': {sprint_name}")
+        print(f"[✓] Đã nạp thành công dữ liệu Sprint: '{sprint_name}'")
     except Exception as e:
-        print(f"[X] Lỗi đọc file dữ liệu: {e}")
+        print(f"[X] Lỗi nạp thông tin Sprint: {e}")
         return
 
     # 2. Kiểm tra nếu chưa có file phiên đăng nhập thì đăng nhập trước
@@ -871,7 +871,7 @@ def run_automation(data_file_path: str = "sprint_data.json"):
 
 
 if __name__ == "__main__":
-    input_file = sys.argv[1] if len(sys.argv) > 1 else "sprint_data.json"
+    input_file = sys.argv[1] if len(sys.argv) > 1 else None
     try:
         run_automation(input_file)
     except Exception as e:

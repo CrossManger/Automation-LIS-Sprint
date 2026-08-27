@@ -13,7 +13,6 @@ Automation-LIS/
 ├── login.py                    # Module xác thực đăng nhập LIS an toàn
 ├── config.py                   # Quản lý cấu hình tập trung & nhận diện môi trường CI
 ├── data_loader.py              # Nạp dữ liệu & hỗ trợ ghi đè biến môi trường
-├── sprint_data.json            # File cấu hình dữ liệu Sprint
 ├── requirements.txt            # Danh sách thư viện Python cần thiết
 ├── .gitignore                  # Bỏ qua file nhạy cảm & virtualenv
 └── README.md                   # Hướng dẫn chi tiết

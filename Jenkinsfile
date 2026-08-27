@@ -123,7 +123,7 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
                                 export HEADLESS="True"
                                 
-                                python3 main.py sprint_data.json
+                                python3 main.py
                             '''
                         }
                     }
