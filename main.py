@@ -64,7 +64,7 @@ def select_option_with_fallback(locator, label: str, field_name: str) -> bool:
             return False
 
 
-def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
+def set_project_settings(page: Page, planned: bool, public: bool, settings_url: str | None = None) -> bool:
     """
     Vào Settings và cấu hình Planned / Public cho dự án.
     Tái sử dụng cho cả 2 lần: trước Import (Planned=True, Public=False)
@@ -74,52 +74,32 @@ def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
     public_label = "BẬT" if public else "TẮT"
     print(f"\n[*] Đang vào mục 'Settings' để cấu hình: Planned = {planned_label}, Public = {public_label}...")
 
-    # 1. Thử lấy trực tiếp đường dẫn href của Settings tab
-    settings_selector = "#main-menu a[href*='settings'], #main-menu a:has-text('Settings'), a.settings, a[href*='/settings']"
-    settings_tab = page.locator(settings_selector).first
+    # 1. Điều hướng thẳng tới URL Settings nếu có sẵn
+    if settings_url:
+        safe_goto(page, settings_url)
+    elif "settings" not in page.url:
+        settings_selector = "#main-menu a[href*='settings'], #main-menu a:has-text('Settings'), a.settings, a[href*='/settings']"
+        settings_tab = page.locator(settings_selector).first
 
-    if settings_tab.count() > 0:
-        try:
-            href = settings_tab.get_attribute("href")
-            if href:
-                if href.startswith("/"):
-                    href = f"{config.LIS_HOME_URL.rstrip('/')}{href}"
-                safe_goto(page, href)
-                page.wait_for_load_state("networkidle")
-        except Exception:
-            pass
-
-    # 2. Nếu chưa vào được trang Settings, trích xuất project id từ breadcrumb hoặc URL hiện tại
-    if "settings" not in page.url:
-        proj_id = None
-        match = re.search(r"/projects/([^/?]+)", page.url)
-        if match:
-            proj_id = match.group(1)
-        else:
-            proj_link = page.locator("#header h1 a, .breadcrumbs a[href*='/projects/'], #main-menu a[href*='/projects/']").first
-            if proj_link.count() > 0:
-                try:
-                    p_href = proj_link.get_attribute("href") or ""
-                    m = re.search(r"/projects/([^/?]+)", p_href)
-                    if m:
-                        proj_id = m.group(1)
-                except Exception:
-                    pass
-
-        if proj_id:
-            settings_url = f"{config.LIS_HOME_URL.rstrip('/')}/projects/{proj_id}/settings"
-            safe_goto(page, settings_url)
-            page.wait_for_load_state("networkidle")
-        else:
+        if settings_tab.count() > 0:
             try:
-                settings_tab.click(force=True)
-                page.wait_for_load_state("networkidle")
+                href = settings_tab.get_attribute("href")
+                if href:
+                    if href.startswith("/"):
+                        href = f"{config.LIS_HOME_URL.rstrip('/')}{href}"
+                    safe_goto(page, href)
             except Exception:
                 pass
 
+        if "settings" not in page.url:
+            match = re.search(r"/projects/([^/?]+)", page.url)
+            if match:
+                safe_goto(page, f"{config.LIS_HOME_URL.rstrip('/')}/projects/{match.group(1)}/settings")
+
+    page.wait_for_load_state("networkidle")
     print(f"[✓] Đã chuyển tới trang Settings: {page.url}")
 
-    # Planned checkbox
+    # 2. Cấu hình ô Planned
     planned_checkbox = page.locator("#project_is_planned")
     try:
         planned_checkbox.wait_for(state="attached", timeout=10000)
@@ -128,7 +108,7 @@ def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
     except Exception as e:
         print(f"  [!] Cảnh báo khi cấu hình ô 'Planned': {e}")
 
-    # Public checkbox
+    # 3. Cấu hình ô Public
     public_checkbox = page.locator("#project_is_public")
     if public_checkbox.count() > 0:
         try:
@@ -138,7 +118,7 @@ def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
         except Exception:
             print("  [!] Không tìm thấy ô 'Public' trên giao diện.")
 
-    # Save
+    # 4. Bấm Save
     save_btn = page.locator(
         "form[action*='settings'] input[type='submit'], "
         "#tab-content-info input[type='submit'], "
@@ -730,6 +710,13 @@ def run_automation(data_file_path: str | None = None):
         page.wait_for_load_state("networkidle")
         print(f"[✓] Đã chuyển đến trang dự án: {page.title()} ({page.url})")
 
+        # Lưu lại URL trang Settings của dự án để dùng xuyên suốt
+        project_settings_url = None
+        match = re.search(r"/projects/([^/?]+)", page.url)
+        if match:
+            project_settings_url = f"{config.LIS_HOME_URL.rstrip('/')}/projects/{match.group(1)}/settings"
+            print(f"[✓] Đã ghi nhớ đường dẫn Settings của dự án: {project_settings_url}")
+
         # ==========================================
         # Thao tác 3: Vào Roadmap
         # ==========================================
@@ -802,7 +789,7 @@ def run_automation(data_file_path: str | None = None):
         # ==========================================
         # Thao tác 9: Settings - Planned = BẬT, Public = TẮT
         # ==========================================
-        set_project_settings(page, planned=True, public=False)
+        set_project_settings(page, planned=True, public=False, settings_url=project_settings_url)
 
         # ==========================================
         # Thao tác 10: Nhấp vào "New task" trên menu top dự án
@@ -897,7 +884,7 @@ def run_automation(data_file_path: str | None = None):
         # ==========================================
         # Thao tác 18: Khôi phục cài đặt Settings (Public = BẬT, Planned = TẮT)
         # ==========================================
-        set_project_settings(page, planned=False, public=True)
+        set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
 
         # ==========================================
         # Hoàn tất
