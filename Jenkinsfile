@@ -2,18 +2,18 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username*')
-        password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password*')
-        string(name: 'NAME_SPRINT', defaultValue: '', description: 'Name Sprint*')
-        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date* (YYYY-MM-DD)')
-        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date* (YYYY-MM-DD)')
+        string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username')
+        string(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password')
+        string(name: 'NAME_SPRINT', defaultValue: '', description: 'Name Sprint')
+        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)')
+        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
         choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee*')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer*')
-        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer*')
-        file(name: 'STRUCTURE_FILE_UPLOAD', description: 'Structure File (Template)*')
-        file(name: 'WORK_ITEMS_FILE_UPLOAD', description: 'Work Items File*')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
+        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer')
+        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
+        file(name: 'STRUCTURE_FILE_UPLOAD', description: 'Structure File (Template)')
+        file(name: 'WORK_ITEMS_FILE_UPLOAD', description: 'Work Items File')
     }
 
     environment {
