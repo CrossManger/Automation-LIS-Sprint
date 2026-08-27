@@ -137,9 +137,9 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             echo "=========================================="
             echo "🏁 Kết thúc tiến trình Build trên Jenkins."
             echo "=========================================="
-            // Dọn dẹp session sau khi build xong để bảo mật
+            // Dọn dẹp tất cả các file Excel mà người dùng vừa tải lên và file session auth.json
             sh '''
-                rm -f structure_template.xlsx LIS_import_WI_Sep01.xlsx auth.json
+                rm -f *.xlsx auth.json
             '''
         }
         success {
