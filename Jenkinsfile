@@ -2,7 +2,11 @@ pipeline {
     agent any
 
     parameters {
-        // Tất cả các tham số đều để trống (không có defaultValue), bắt buộc người dùng phải nhập
+        // 1. Thông tin đăng nhập LIS (Nhập trực tiếp mỗi lần bấm Build, mật khẩu tự động che dấu sao)
+        string(name: 'LIS_USERNAME', defaultValue: '', description: '👤 Tài khoản LIS (Username)* [BẮT BUỘC - Ví dụ: minhvh]')
+        password(name: 'LIS_PASSWORD', defaultValue: '', description: '🔒 Mật khẩu LIS (Password)* [BẮT BUỘC - Sẽ tự động che ký tự dấu sao ••••]')
+
+        // 2. Thông tin Sprint & Dự án
         string(name: 'NAME_SPRINT', defaultValue: '', description: 'Tên Sprint (Name Sprint)* [BẮT BUỘC - Ví dụ: 2026 Oct 01 Sprint]')
         string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)* [BẮT BUỘC - Ví dụ: 2026-10-01]')
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)* [BẮT BUỘC - Ví dụ: 2026-10-17]')
@@ -12,11 +16,9 @@ pipeline {
         string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer* [BẮT BUỘC - Ví dụ: 786]')
         string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer* [BẮT BUỘC - Ví dụ: minhvh]')
         
-        // Bắt buộc người dùng tải trực tiếp 2 file Excel từ máy tính lên Jenkins
+        // 3. Tải trực tiếp 2 file Excel từ máy tính lên Jenkins
         file(name: 'STRUCTURE_FILE_UPLOAD', description: '📁 Tải lên file Structure Template (.xlsx)* [BẮT BUỘC]')
         file(name: 'WORK_ITEMS_FILE_UPLOAD', description: '📁 Tải lên file Work Items (.xlsx)* [BẮT BUỘC]')
-        
-        string(name: 'LIS_CREDENTIALS_ID', defaultValue: '', description: 'ID lưu Username/Password trong Jenkins Credentials* [BẮT BUỘC - Ví dụ: lis_credentials]')
     }
 
     environment {
@@ -30,30 +32,31 @@ pipeline {
             steps {
                 script {
                     echo "=========================================="
-                    echo "🔍 Đang kiểm tra các tham số đầu vào..."
+                    echo "🔍 Đang kiểm tra các thông tin nhập liệu..."
                     echo "=========================================="
                     
                     def missingParams = []
                     
+                    if (!params.LIS_USERNAME?.trim()) missingParams.add("LIS_USERNAME (Tài khoản LIS)")
+                    if (!params.LIS_PASSWORD?.trim()) missingParams.add("LIS_PASSWORD (Mật khẩu LIS)")
                     if (!params.NAME_SPRINT?.trim()) missingParams.add("NAME_SPRINT (Tên Sprint)")
                     if (!params.START_DATE?.trim()) missingParams.add("START_DATE (Release Start Date)")
                     if (!params.DUE_DATE?.trim()) missingParams.add("DUE_DATE (Release Submission Date)")
                     if (!params.ASSIGNEE?.trim()) missingParams.add("ASSIGNEE (Assignee)")
                     if (!params.PROJECT_ID?.trim()) missingParams.add("PROJECT_ID (Project ID Importer)")
                     if (!params.AUTHOR?.trim()) missingParams.add("AUTHOR (Author Importer)")
-                    if (!params.LIS_CREDENTIALS_ID?.trim()) missingParams.add("LIS_CREDENTIALS_ID (Jenkins Credentials ID)")
                     
                     if (missingParams.size() > 0) {
                         error("""
 ========================================================================
-❌ LỖI THIẾU THAM SỐ BẮT BUỘC!
-Hệ thống không cho phép dùng giá trị mặc định. Vui lòng nhập đầy đủ các trường sau:
+❌ LỖI THIẾU THÔNG TIN BẮT BUỘC!
+Vui lòng điền đầy đủ các trường sau trên giao diện Build with Parameters:
 - ${missingParams.join('\n- ')}
 ========================================================================
 """)
                     }
                     
-                    echo "✅ Tất cả các tham số nhập liệu đã hợp lệ."
+                    echo "✅ Tất cả thông tin nhập liệu đã đầy đủ và hợp lệ."
                 }
             }
         }
@@ -83,7 +86,8 @@ Hệ thống không cho phép dùng giá trị mặc định. Vui lòng nhập �
             steps {
                 script {
                     echo "=========================================="
-                    echo "▶ Kiểm tra 2 file Excel upload và khởi chạy..."
+                    echo "▶ Tiếp nhận file Excel và khởi chạy tự động hóa..."
+                    echo "User LIS: ${params.LIS_USERNAME}"
                     echo "Sprint:   ${params.NAME_SPRINT}"
                     echo "Assignee: ${params.ASSIGNEE}"
                     echo "=========================================="
@@ -106,28 +110,25 @@ Hệ thống không cho phép dùng giá trị mặc định. Vui lòng nhập �
                         echo "[✓] Đã tiếp nhận và chuẩn bị sẵn sàng 2 file Excel."
                     '''
                     
-                    // Nạp Username / Password từ Jenkins Credentials
-                    withCredentials([usernamePassword(credentialsId: params.LIS_CREDENTIALS_ID.trim(), usernameVariable: 'LIS_USERNAME', passwordVariable: 'LIS_PASSWORD')]) {
-                        sh '''
-                            . .venv/bin/activate
-                            
-                            export NAME_SPRINT="${NAME_SPRINT}"
-                            export START_DATE="${START_DATE}"
-                            export DUE_DATE="${DUE_DATE}"
-                            export RELEASE_TYPE="${RELEASE_TYPE}"
-                            export ENVIRONMENT="${ENVIRONMENT}"
-                            export ASSIGNEE="${ASSIGNEE}"
-                            export PROJECT_ID="${PROJECT_ID}"
-                            export AUTHOR="${AUTHOR}"
-                            export STRUCTURE_FILE="structure_template.xlsx"
-                            export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
-                            export LIS_USERNAME="${LIS_USERNAME}"
-                            export LIS_PASSWORD="${LIS_PASSWORD}"
-                            export HEADLESS="True"
-                            
-                            python main.py sprint_data.json
-                        '''
-                    }
+                    sh '''
+                        . .venv/bin/activate
+                        
+                        export LIS_USERNAME="${LIS_USERNAME}"
+                        export LIS_PASSWORD="${LIS_PASSWORD}"
+                        export NAME_SPRINT="${NAME_SPRINT}"
+                        export START_DATE="${START_DATE}"
+                        export DUE_DATE="${DUE_DATE}"
+                        export RELEASE_TYPE="${RELEASE_TYPE}"
+                        export ENVIRONMENT="${ENVIRONMENT}"
+                        export ASSIGNEE="${ASSIGNEE}"
+                        export PROJECT_ID="${PROJECT_ID}"
+                        export AUTHOR="${AUTHOR}"
+                        export STRUCTURE_FILE="structure_template.xlsx"
+                        export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
+                        export HEADLESS="True"
+                        
+                        python main.py sprint_data.json
+                    '''
                 }
             }
         }
@@ -138,7 +139,7 @@ Hệ thống không cho phép dùng giá trị mặc định. Vui lòng nhập �
             echo "=========================================="
             echo "🏁 Kết thúc tiến trình Build trên Jenkins."
             echo "=========================================="
-            // Dọn dẹp các file Excel sau khi build xong để bảo mật
+            // Dọn dẹp các file Excel và session sau khi build xong để bảo mật
             sh '''
                 rm -f structure_template.xlsx LIS_import_WI_Sep01.xlsx auth.json
             '''
