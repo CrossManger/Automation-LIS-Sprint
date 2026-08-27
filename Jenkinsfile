@@ -20,6 +20,7 @@ pipeline {
         HEADLESS = 'True'
         PYTHONUNBUFFERED = '1'
         CI = 'true'
+        PATH = "$HOME/.local/bin:$PATH"
     }
 
     stages {
@@ -64,27 +65,21 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     echo "=========================================="
                     
                     sh '''
-                        set -x
-                        # Kiểm tra Python 3 có sẵn trên Jenkins agent
-                        which python3 || echo "python3 not found in standard PATH"
-                        python3 --version || true
+                        export PATH="$HOME/.local/bin:$PATH"
                         
-                        # Tạo virtual environment nếu có thể, hoặc dùng môi trường hệ thống
-                        if [ ! -d ".venv" ]; then
-                            python3 -m venv .venv || virtualenv .venv || true
+                        # 1. Tự động tải và bootstrap pip cho user nếu máy chủ chưa có sẵn pip
+                        if ! python3 -m pip --version >/dev/null 2>&1; then
+                            echo "[*] Máy chủ chưa có pip, đang tự động tải và cài đặt pip vào ~/.local/bin..."
+                            curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py || wget -q https://bootstrap.pypa.io/get-pip.py -O get-pip.py
+                            python3 get-pip.py --user --no-warn-script-location
+                            rm -f get-pip.py
                         fi
                         
-                        if [ -f ".venv/bin/activate" ]; then
-                            . .venv/bin/activate
-                            pip install --upgrade pip || true
-                            pip install -r requirements.txt
-                            playwright install chromium
-                        else
-                            echo "[!] Đang cài đặt thư viện trực tiếp vào môi trường Python hệ thống..."
-                            python3 -m pip install --upgrade pip || true
-                            python3 -m pip install -r requirements.txt || python3 -m pip install --user -r requirements.txt
-                            python3 -m playwright install chromium || playwright install chromium || true
-                        fi
+                        # 2. Cài đặt các thư viện cần thiết vào user environment
+                        python3 -m pip install --user -r requirements.txt
+                        
+                        # 3. Tải trình duyệt Chromium cho Playwright
+                        python3 -m playwright install chromium
                     '''
                 }
             }
@@ -119,13 +114,7 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     '''
                     
                     sh '''
-                        # Xác định Python binary để chạy
-                        if [ -f ".venv/bin/activate" ]; then
-                            . .venv/bin/activate
-                            PYTHON_BIN="python"
-                        else
-                            PYTHON_BIN="python3"
-                        fi
+                        export PATH="$HOME/.local/bin:$PATH"
                         
                         export LIS_USERNAME="${LIS_USERNAME}"
                         export LIS_PASSWORD="${LIS_PASSWORD}"
@@ -141,7 +130,7 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                         export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
                         export HEADLESS="True"
                         
-                        $PYTHON_BIN main.py sprint_data.json
+                        python3 main.py sprint_data.json
                     '''
                 }
             }
