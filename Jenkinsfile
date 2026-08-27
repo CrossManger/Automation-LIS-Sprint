@@ -12,8 +12,6 @@ pipeline {
         string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
         string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g. 786 for Team MAX)')
         string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
-        file(name: 'STRUCTURE_FILE_UPLOAD', description: 'Structure File (Template)')
-        file(name: 'WORK_ITEMS_FILE_UPLOAD', description: 'Work Items File')
     }
 
     environment {
@@ -85,84 +83,28 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             }
         }
 
-        stage('3. Kiểm Tra File Upload & Thực Thi Tự Động Hóa') {
+        stage('3. Thực Thi Tự Động Hóa LIS & Importer') {
             steps {
                 script {
                     echo "=========================================="
-                    echo "▶ Tiếp nhận file Excel và khởi chạy tự động hóa..."
+                    echo "▶ Khởi chạy kịch bản tự động hóa..."
                     echo "User LIS: ${params.LIS_USERNAME}"
                     echo "Sprint:   ${params.NAME_SPRINT}"
                     echo "Assignee: ${params.ASSIGNEE}"
                     echo "=========================================="
 
                     sh '''
-                        echo "--- Đang quét tìm 2 file Excel do bạn tải lên trên Jenkins ---"
-                        
-                        # 1. Tìm file STRUCTURE_FILE_UPLOAD trong workspace hoặc thư mục build của Jenkins
-                        if [ -f "STRUCTURE_FILE_UPLOAD" ]; then
-                            echo "[✓] Tìm thấy STRUCTURE_FILE_UPLOAD trong workspace."
-                            cp -f "STRUCTURE_FILE_UPLOAD" structure_template.xlsx
-                        elif [ -f "structure_template.xlsx" ]; then
-                            echo "[✓] Đã có file structure_template.xlsx trong workspace."
-                        else
-                            # Tìm trong thư mục lưu trữ file parameters của Jenkins build
-                            FOUND_STRUCT=$(find /var/lib/jenkins -name "STRUCTURE_FILE_UPLOAD" 2>/dev/null | grep "/${BUILD_NUMBER}/" | head -n 1)
-                            if [ -z "$FOUND_STRUCT" ]; then
-                                FOUND_STRUCT=$(find /var/lib/jenkins -name "STRUCTURE_FILE_UPLOAD" 2>/dev/null | head -n 1)
-                            fi
-                            if [ -n "$FOUND_STRUCT" ]; then
-                                echo "[✓] Đã tìm thấy file Structure trong Jenkins: $FOUND_STRUCT"
-                                cp -f "$FOUND_STRUCT" structure_template.xlsx
-                            fi
-                        fi
-
-                        # 2. Tìm file WORK_ITEMS_FILE_UPLOAD trong workspace hoặc thư mục build của Jenkins
-                        if [ -f "WORK_ITEMS_FILE_UPLOAD" ]; then
-                            echo "[✓] Tìm thấy WORK_ITEMS_FILE_UPLOAD trong workspace."
-                            cp -f "WORK_ITEMS_FILE_UPLOAD LIS_import_WI_Sep01.xlsx"
-                        elif [ -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "[✓] Đã có file LIS_import_WI_Sep01.xlsx trong workspace."
-                        else
-                            # Tìm trong thư mục lưu trữ file parameters của Jenkins build
-                            FOUND_WI=$(find /var/lib/jenkins -name "WORK_ITEMS_FILE_UPLOAD" 2>/dev/null | grep "/${BUILD_NUMBER}/" | head -n 1)
-                            if [ -z "$FOUND_WI" ]; then
-                                FOUND_WI=$(find /var/lib/jenkins -name "WORK_ITEMS_FILE_UPLOAD" 2>/dev/null | head -n 1)
-                            fi
-                            if [ -n "$FOUND_WI" ]; then
-                                echo "[✓] Đã tìm thấy file Work Items trong Jenkins: $FOUND_WI"
-                                cp -f "$FOUND_WI" LIS_import_WI_Sep01.xlsx
-                            fi
-                        fi
-
-                        # 3. Quét tất cả file .xlsx nếu có tên khác
-                        if [ ! -f "structure_template.xlsx" ] || [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            COUNT=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | wc -l)
-                            if [ "$COUNT" -ge 2 ]; then
-                                FILE1=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | sed -n '1p')
-                                FILE2=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | sed -n '2p')
-                                cp -f "$FILE1" structure_template.xlsx
-                                cp -f "$FILE2" LIS_import_WI_Sep01.xlsx
-                                echo "[✓] Tự động gán 2 file .xlsx tìm thấy: $FILE1 và $FILE2"
-                            fi
-                        fi
-
-                        # 4. Kiểm tra xác nhận
-                        if [ ! -f "structure_template.xlsx" ]; then
-                            echo "❌ LỖI: Không tìm thấy file Structure Template trong hệ thống Jenkins!"
-                            exit 1
-                        fi
-
-                        if [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "❌ LỖI: Không tìm thấy file Work Items trong hệ thống Jenkins!"
-                            exit 1
-                        fi
-
-                        echo "[✓] Đã nạp thành công 2 file Excel sẵn sàng chạy:"
-                        ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
-                    '''
-                    
-                    sh '''
                         export PATH="$HOME/.local/bin:$PATH"
+                        
+                        # Kiểm tra file Excel trong repository
+                        if [ ! -f "structure_template.xlsx" ] || [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
+                            echo "❌ LỖI: Thiếu file structure_template.xlsx hoặc LIS_import_WI_Sep01.xlsx trong repository!"
+                            ls -la
+                            exit 1
+                        fi
+                        
+                        echo "[✓] Đã sẵn sàng 2 file Excel:"
+                        ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
                         
                         export LIS_USERNAME="${LIS_USERNAME}"
                         export LIS_PASSWORD="${LIS_PASSWORD}"
@@ -190,9 +132,9 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             echo "=========================================="
             echo "🏁 Kết thúc tiến trình Build trên Jenkins."
             echo "=========================================="
-            // Dọn dẹp các file Excel và session sau khi build xong để bảo mật
+            // Dọn dẹp session sau khi build xong để bảo mật
             sh '''
-                rm -f structure_template.xlsx LIS_import_WI_Sep01.xlsx auth.json
+                rm -f auth.json
             '''
         }
         success {
