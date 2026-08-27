@@ -95,32 +95,67 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     echo "Assignee: ${params.ASSIGNEE}"
                     echo "=========================================="
 
-                    // Hiển thị danh sách file và kiểm tra file upload
                     sh '''
-                        echo "--- Danh sách file trong Jenkins workspace ---"
+                        echo "--- Danh sách tất cả file hiện tại trong Workspace ---"
                         ls -la
                         
-                        # 1. Xử lý file Structure Template
+                        # 1. Tìm và xử lý file Structure Template
                         if [ -f "STRUCTURE_FILE_UPLOAD" ]; then
+                            echo "[✓] Nhận diện file: STRUCTURE_FILE_UPLOAD"
                             mv -f STRUCTURE_FILE_UPLOAD structure_template.xlsx
                         elif [ -f "structure_template.xlsx" ]; then
-                            echo "[✓] Tìm thấy file structure_template.xlsx trong workspace."
+                            echo "[✓] Đã có file structure_template.xlsx."
                         else
-                            echo "❌ LỖI: Bạn chưa bấm chọn file tại ô 'Structure File (Template)' trên giao diện Jenkins!"
-                            exit 1
+                            FOUND_STRUCT=$(find . -maxdepth 2 -iname "*struct*" -o -iname "*template*" | grep -v ".venv" | head -n 1)
+                            if [ -n "$FOUND_STRUCT" ]; then
+                                echo "[✓] Nhận diện file structure qua tên: $FOUND_STRUCT"
+                                cp -f "$FOUND_STRUCT" structure_template.xlsx
+                            fi
                         fi
-                        
-                        # 2. Xử lý file Work Items
+
+                        # 2. Tìm và xử lý file Work Items
                         if [ -f "WORK_ITEMS_FILE_UPLOAD" ]; then
+                            echo "[✓] Nhận diện file: WORK_ITEMS_FILE_UPLOAD"
                             mv -f WORK_ITEMS_FILE_UPLOAD LIS_import_WI_Sep01.xlsx
                         elif [ -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "[✓] Tìm thấy file LIS_import_WI_Sep01.xlsx trong workspace."
+                            echo "[✓] Đã có file LIS_import_WI_Sep01.xlsx."
                         else
-                            echo "❌ LỖI: Bạn chưa bấm chọn file tại ô 'Work Items File' trên giao diện Jenkins!"
+                            FOUND_WI=$(find . -maxdepth 2 -iname "*work*" -o -iname "*wi*" -o -iname "*import*" | grep -v "structure" | grep -v ".venv" | head -n 1)
+                            if [ -n "$FOUND_WI" ]; then
+                                echo "[✓] Nhận diện file work items qua tên: $FOUND_WI"
+                                cp -f "$FOUND_WI" LIS_import_WI_Sep01.xlsx
+                            fi
+                        fi
+
+                        # 3. Tự động gán nếu có 2 file .xlsx bất kỳ trong workspace
+                        if [ ! -f "structure_template.xlsx" ] || [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
+                            COUNT=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | wc -l)
+                            if [ "$COUNT" -ge 2 ]; then
+                                FILE1=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | sed -n '1p')
+                                FILE2=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | sed -n '2p')
+                                cp -f "$FILE1" structure_template.xlsx
+                                cp -f "$FILE2" LIS_import_WI_Sep01.xlsx
+                                echo "[✓] Tự động gán 2 file .xlsx tìm thấy: $FILE1 và $FILE2"
+                            fi
+                        fi
+
+                        # 4. Kiểm tra lần cuối
+                        if [ ! -f "structure_template.xlsx" ]; then
+                            echo "❌ LỖI: Chưa tìm thấy file Structure Template trong Workspace!"
+                            echo "Vui lòng xem danh sách file bên dưới:"
+                            ls -la
                             exit 1
                         fi
-                        
-                        echo "[✓] Đã tiếp nhận và chuẩn bị sẵn sàng 2 file Excel."
+
+                        if [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
+                            echo "❌ LỖI: Chưa tìm thấy file Work Items trong Workspace!"
+                            echo "Vui lòng xem danh sách file bên dưới:"
+                            ls -la
+                            exit 1
+                        fi
+
+                        echo "[✓] Đã sẵn sàng 2 file Excel:"
+                        ls -la structure_template.xlsx LIS_import_WI_Sep01.xlsx
                     '''
                     
                     sh '''
