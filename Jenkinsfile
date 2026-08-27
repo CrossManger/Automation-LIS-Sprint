@@ -95,21 +95,31 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     echo "Assignee: ${params.ASSIGNEE}"
                     echo "=========================================="
 
-                    // Kiểm tra bắt buộc phải có 2 file Excel do người dùng upload
+                    // Hiển thị danh sách file và kiểm tra file upload
                     sh '''
-                        if [ ! -f "STRUCTURE_FILE_UPLOAD" ]; then
-                            echo "❌ LỖI: Bạn chưa tải lên file Structure Template (.xlsx)!"
+                        echo "--- Danh sách file trong Jenkins workspace ---"
+                        ls -la
+                        
+                        # 1. Xử lý file Structure Template
+                        if [ -f "STRUCTURE_FILE_UPLOAD" ]; then
+                            mv -f STRUCTURE_FILE_UPLOAD structure_template.xlsx
+                        elif [ -f "structure_template.xlsx" ]; then
+                            echo "[✓] Tìm thấy file structure_template.xlsx trong workspace."
+                        else
+                            echo "❌ LỖI: Bạn chưa bấm chọn file tại ô 'Structure File (Template)' trên giao diện Jenkins!"
                             exit 1
                         fi
                         
-                        if [ ! -f "WORK_ITEMS_FILE_UPLOAD" ]; then
-                            echo "❌ LỖI: Bạn chưa tải lên file Work Items (.xlsx)!"
+                        # 2. Xử lý file Work Items
+                        if [ -f "WORK_ITEMS_FILE_UPLOAD" ]; then
+                            mv -f WORK_ITEMS_FILE_UPLOAD LIS_import_WI_Sep01.xlsx
+                        elif [ -f "LIS_import_WI_Sep01.xlsx" ]; then
+                            echo "[✓] Tìm thấy file LIS_import_WI_Sep01.xlsx trong workspace."
+                        else
+                            echo "❌ LỖI: Bạn chưa bấm chọn file tại ô 'Work Items File' trên giao diện Jenkins!"
                             exit 1
                         fi
                         
-                        # Đổi tên file upload thành file chuẩn để script Python xử lý
-                        mv -f STRUCTURE_FILE_UPLOAD structure_template.xlsx
-                        mv -f WORK_ITEMS_FILE_UPLOAD LIS_import_WI_Sep01.xlsx
                         echo "[✓] Đã tiếp nhận và chuẩn bị sẵn sàng 2 file Excel."
                     '''
                     
