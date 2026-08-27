@@ -96,38 +96,45 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     echo "=========================================="
 
                     sh '''
-                        echo "--- Danh sách tất cả file hiện tại trong Workspace ---"
-                        ls -la
+                        echo "--- Đang quét tìm 2 file Excel do bạn tải lên trên Jenkins ---"
                         
-                        # 1. Tìm và xử lý file Structure Template
+                        # 1. Tìm file STRUCTURE_FILE_UPLOAD trong workspace hoặc thư mục build của Jenkins
                         if [ -f "STRUCTURE_FILE_UPLOAD" ]; then
-                            echo "[✓] Nhận diện file: STRUCTURE_FILE_UPLOAD"
-                            mv -f STRUCTURE_FILE_UPLOAD structure_template.xlsx
+                            echo "[✓] Tìm thấy STRUCTURE_FILE_UPLOAD trong workspace."
+                            cp -f "STRUCTURE_FILE_UPLOAD" structure_template.xlsx
                         elif [ -f "structure_template.xlsx" ]; then
-                            echo "[✓] Đã có file structure_template.xlsx."
+                            echo "[✓] Đã có file structure_template.xlsx trong workspace."
                         else
-                            FOUND_STRUCT=$(find . -maxdepth 2 -iname "*struct*" -o -iname "*template*" | grep -v ".venv" | head -n 1)
+                            # Tìm trong thư mục lưu trữ file parameters của Jenkins build
+                            FOUND_STRUCT=$(find /var/lib/jenkins -name "STRUCTURE_FILE_UPLOAD" 2>/dev/null | grep "/${BUILD_NUMBER}/" | head -n 1)
+                            if [ -z "$FOUND_STRUCT" ]; then
+                                FOUND_STRUCT=$(find /var/lib/jenkins -name "STRUCTURE_FILE_UPLOAD" 2>/dev/null | head -n 1)
+                            fi
                             if [ -n "$FOUND_STRUCT" ]; then
-                                echo "[✓] Nhận diện file structure qua tên: $FOUND_STRUCT"
+                                echo "[✓] Đã tìm thấy file Structure trong Jenkins: $FOUND_STRUCT"
                                 cp -f "$FOUND_STRUCT" structure_template.xlsx
                             fi
                         fi
 
-                        # 2. Tìm và xử lý file Work Items
+                        # 2. Tìm file WORK_ITEMS_FILE_UPLOAD trong workspace hoặc thư mục build của Jenkins
                         if [ -f "WORK_ITEMS_FILE_UPLOAD" ]; then
-                            echo "[✓] Nhận diện file: WORK_ITEMS_FILE_UPLOAD"
-                            mv -f WORK_ITEMS_FILE_UPLOAD LIS_import_WI_Sep01.xlsx
+                            echo "[✓] Tìm thấy WORK_ITEMS_FILE_UPLOAD trong workspace."
+                            cp -f "WORK_ITEMS_FILE_UPLOAD LIS_import_WI_Sep01.xlsx"
                         elif [ -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "[✓] Đã có file LIS_import_WI_Sep01.xlsx."
+                            echo "[✓] Đã có file LIS_import_WI_Sep01.xlsx trong workspace."
                         else
-                            FOUND_WI=$(find . -maxdepth 2 -iname "*work*" -o -iname "*wi*" -o -iname "*import*" | grep -v "structure" | grep -v ".venv" | head -n 1)
+                            # Tìm trong thư mục lưu trữ file parameters của Jenkins build
+                            FOUND_WI=$(find /var/lib/jenkins -name "WORK_ITEMS_FILE_UPLOAD" 2>/dev/null | grep "/${BUILD_NUMBER}/" | head -n 1)
+                            if [ -z "$FOUND_WI" ]; then
+                                FOUND_WI=$(find /var/lib/jenkins -name "WORK_ITEMS_FILE_UPLOAD" 2>/dev/null | head -n 1)
+                            fi
                             if [ -n "$FOUND_WI" ]; then
-                                echo "[✓] Nhận diện file work items qua tên: $FOUND_WI"
+                                echo "[✓] Đã tìm thấy file Work Items trong Jenkins: $FOUND_WI"
                                 cp -f "$FOUND_WI" LIS_import_WI_Sep01.xlsx
                             fi
                         fi
 
-                        # 3. Tự động gán nếu có 2 file .xlsx bất kỳ trong workspace
+                        # 3. Quét tất cả file .xlsx nếu có tên khác
                         if [ ! -f "structure_template.xlsx" ] || [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
                             COUNT=$(find . -maxdepth 2 -name "*.xlsx" | grep -v ".venv" | wc -l)
                             if [ "$COUNT" -ge 2 ]; then
@@ -139,23 +146,19 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                             fi
                         fi
 
-                        # 4. Kiểm tra lần cuối
+                        # 4. Kiểm tra xác nhận
                         if [ ! -f "structure_template.xlsx" ]; then
-                            echo "❌ LỖI: Chưa tìm thấy file Structure Template trong Workspace!"
-                            echo "Vui lòng xem danh sách file bên dưới:"
-                            ls -la
+                            echo "❌ LỖI: Không tìm thấy file Structure Template trong hệ thống Jenkins!"
                             exit 1
                         fi
 
                         if [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "❌ LỖI: Chưa tìm thấy file Work Items trong Workspace!"
-                            echo "Vui lòng xem danh sách file bên dưới:"
-                            ls -la
+                            echo "❌ LỖI: Không tìm thấy file Work Items trong hệ thống Jenkins!"
                             exit 1
                         fi
 
-                        echo "[✓] Đã sẵn sàng 2 file Excel:"
-                        ls -la structure_template.xlsx LIS_import_WI_Sep01.xlsx
+                        echo "[✓] Đã nạp thành công 2 file Excel sẵn sàng chạy:"
+                        ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
                     '''
                     
                     sh '''
