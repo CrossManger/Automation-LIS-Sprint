@@ -12,10 +12,8 @@ pipeline {
         string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
         string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g. 786 for Team MAX)')
         string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
-        
-        // Đặt tên đích của File Parameter đúng với tên file kịch bản cần (Jenkins sẽ tự động lưu file upload thành tên này)
-        file(name: 'structure_template.xlsx', description: 'Structure File (Template)')
-        file(name: 'LIS_import_WI_Sep01.xlsx', description: 'Work Items File')
+        file(name: 'STRUCTURE_FILE', description: 'Structure File (Template)')
+        file(name: 'WORK_ITEMS_FILE', description: 'Work Items File')
     }
 
     environment {
@@ -97,42 +95,65 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     echo "Assignee: ${params.ASSIGNEE}"
                     echo "=========================================="
 
-                    sh '''
-                        export PATH="$HOME/.local/bin:$PATH"
-                        
-                        echo "--- Kiểm tra 2 file Excel do bạn tải lên ---"
-                        
-                        # Kiểm tra file Structure Template
-                        if [ ! -f "structure_template.xlsx" ]; then
-                            echo "❌ LỖI: Bạn chưa tải lên file Structure Template!"
-                            exit 1
-                        fi
-                        
-                        # Kiểm tra file Work Items
-                        if [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "❌ LỖI: Bạn chưa tải lên file Work Items!"
-                            exit 1
-                        fi
-                        
-                        echo "[✓] Đã tiếp nhận thành công 2 file Excel bạn vừa tải lên:"
-                        ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
-                        
-                        export LIS_USERNAME="${LIS_USERNAME}"
-                        export LIS_PASSWORD="${LIS_PASSWORD}"
-                        export NAME_SPRINT="${NAME_SPRINT}"
-                        export START_DATE="${START_DATE}"
-                        export DUE_DATE="${DUE_DATE}"
-                        export RELEASE_TYPE="${RELEASE_TYPE}"
-                        export ENVIRONMENT="${ENVIRONMENT}"
-                        export ASSIGNEE="${ASSIGNEE}"
-                        export PROJECT_ID="${PROJECT_ID}"
-                        export AUTHOR="${AUTHOR}"
-                        export STRUCTURE_FILE="structure_template.xlsx"
-                        export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
-                        export HEADLESS="True"
-                        
-                        python3 main.py sprint_data.json
-                    '''
+                    // Sử dụng withFileParameter của Jenkins để trích xuất file upload vào workspace
+                    try {
+                        withFileParameter('STRUCTURE_FILE') {
+                            withFileParameter('WORK_ITEMS_FILE') {
+                                sh '''
+                                    export PATH="$HOME/.local/bin:$PATH"
+                                    
+                                    # Copy file upload vào workspace
+                                    if [ -n "$STRUCTURE_FILE" ] && [ -f "$STRUCTURE_FILE" ]; then
+                                        cp -f "$STRUCTURE_FILE" structure_template.xlsx
+                                    fi
+                                    if [ -n "$WORK_ITEMS_FILE" ] && [ -f "$WORK_ITEMS_FILE" ]; then
+                                        cp -f "$WORK_ITEMS_FILE" LIS_import_WI_Sep01.xlsx
+                                    fi
+                                    
+                                    echo "[✓] Đã tiếp nhận thành công 2 file Excel upload:"
+                                    ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
+                                    
+                                    export LIS_USERNAME="${LIS_USERNAME}"
+                                    export LIS_PASSWORD="${LIS_PASSWORD}"
+                                    export NAME_SPRINT="${NAME_SPRINT}"
+                                    export START_DATE="${START_DATE}"
+                                    export DUE_DATE="${DUE_DATE}"
+                                    export RELEASE_TYPE="${RELEASE_TYPE}"
+                                    export ENVIRONMENT="${ENVIRONMENT}"
+                                    export ASSIGNEE="${ASSIGNEE}"
+                                    export PROJECT_ID="${PROJECT_ID}"
+                                    export AUTHOR="${AUTHOR}"
+                                    export STRUCTURE_FILE="structure_template.xlsx"
+                                    export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
+                                    export HEADLESS="True"
+                                    
+                                    python3 main.py sprint_data.json
+                                '''
+                            }
+                        }
+                    } catch (NoSuchMethodError e) {
+                        // Fallback nếu Jenkins server không có hàm withFileParameter
+                        echo "[!] withFileParameter không khả dụng, đang dùng fallback copy..."
+                        sh '''
+                            export PATH="$HOME/.local/bin:$PATH"
+                            
+                            export LIS_USERNAME="${LIS_USERNAME}"
+                            export LIS_PASSWORD="${LIS_PASSWORD}"
+                            export NAME_SPRINT="${NAME_SPRINT}"
+                            export START_DATE="${START_DATE}"
+                            export DUE_DATE="${DUE_DATE}"
+                            export RELEASE_TYPE="${RELEASE_TYPE}"
+                            export ENVIRONMENT="${ENVIRONMENT}"
+                            export ASSIGNEE="${ASSIGNEE}"
+                            export PROJECT_ID="${PROJECT_ID}"
+                            export AUTHOR="${AUTHOR}"
+                            export STRUCTURE_FILE="structure_template.xlsx"
+                            export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
+                            export HEADLESS="True"
+                            
+                            python3 main.py sprint_data.json
+                        '''
+                    }
                 }
             }
         }
@@ -143,9 +164,9 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             echo "=========================================="
             echo "🏁 Kết thúc tiến trình Build trên Jenkins."
             echo "=========================================="
-            // Dọn dẹp các file Excel sau khi build xong để bảo mật và sẵn sàng cho lần upload tiếp theo
+            // Dọn dẹp session sau khi build xong để bảo mật
             sh '''
-                rm -f structure_template.xlsx LIS_import_WI_Sep01.xlsx auth.json
+                rm -f auth.json
             '''
         }
         success {
