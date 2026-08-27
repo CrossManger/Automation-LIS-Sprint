@@ -9,9 +9,9 @@ pipeline {
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
         choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (e.g: Trang Pham-Tran-Minh)')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g: 786 for Team MAX)')
-        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer (e.g: trangptm)')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
+        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g. 786 for Team MAX)')
+        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
         file(name: 'STRUCTURE_FILE_UPLOAD', description: 'Structure File (Template)')
         file(name: 'WORK_ITEMS_FILE_UPLOAD', description: 'Work Items File')
     }
@@ -64,14 +64,27 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     echo "=========================================="
                     
                     sh '''
+                        set -x
+                        # Kiểm tra Python 3 có sẵn trên Jenkins agent
+                        which python3 || echo "python3 not found in standard PATH"
+                        python3 --version || true
+                        
+                        # Tạo virtual environment nếu có thể, hoặc dùng môi trường hệ thống
                         if [ ! -d ".venv" ]; then
-                            python3 -m venv .venv
+                            python3 -m venv .venv || virtualenv .venv || true
                         fi
                         
-                        . .venv/bin/activate
-                        pip install --upgrade pip
-                        pip install -r requirements.txt
-                        playwright install chromium
+                        if [ -f ".venv/bin/activate" ]; then
+                            . .venv/bin/activate
+                            pip install --upgrade pip || true
+                            pip install -r requirements.txt
+                            playwright install chromium
+                        else
+                            echo "[!] Đang cài đặt thư viện trực tiếp vào môi trường Python hệ thống..."
+                            python3 -m pip install --upgrade pip || true
+                            python3 -m pip install -r requirements.txt || python3 -m pip install --user -r requirements.txt
+                            python3 -m playwright install chromium || playwright install chromium || true
+                        fi
                     '''
                 }
             }
@@ -106,7 +119,13 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     '''
                     
                     sh '''
-                        . .venv/bin/activate
+                        # Xác định Python binary để chạy
+                        if [ -f ".venv/bin/activate" ]; then
+                            . .venv/bin/activate
+                            PYTHON_BIN="python"
+                        else
+                            PYTHON_BIN="python3"
+                        fi
                         
                         export LIS_USERNAME="${LIS_USERNAME}"
                         export LIS_PASSWORD="${LIS_PASSWORD}"
@@ -122,7 +141,7 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                         export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
                         export HEADLESS="True"
                         
-                        python main.py sprint_data.json
+                        $PYTHON_BIN main.py sprint_data.json
                     '''
                 }
             }
@@ -143,7 +162,7 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             echo "✅ TỰ ĐỘNG HÓA THÀNH CÔNG RỰC RỠ!"
         }
         failure {
-            echo "❌ TIẾN TRÌNH THẤT BẠI HOẶC DỪNG DO THIẾU THAM SỐ BẮT BUỘC!"
+            echo "❌ TIẾN TRÌNH THẤT BẠI HOẶC DỪNG DO CÓ LỖI!"
         }
     }
 }
