@@ -9,11 +9,11 @@ pipeline {
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
         choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (e.g: Trang Pham-Tran-Minh)')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g: 786 for Team MAX)')
-        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer (e.g: trangptm)')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
+        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g. 786 for Team MAX)')
+        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
         
-        // Sử dụng base64File (tương thích 100% với withFileParameter của Jenkins Pipeline)
+        // Nhận 2 file Excel trực tiếp từ máy tính của người dùng
         base64File(name: 'STRUCTURE_FILE', description: 'Structure File (Template)')
         base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File')
     }
@@ -102,12 +102,18 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                             sh '''
                                 export PATH="$HOME/.local/bin:$PATH"
                                 
-                                # Copy file từ withFileParameter vào workspace
-                                cp -f "$STRUCTURE_FILE" structure_template.xlsx
-                                cp -f "$WORK_ITEMS_FILE" LIS_import_WI_Sep01.xlsx
+                                # Lấy đúng tên file gốc do bạn tải lên
+                                STRUCT_NAME=$(basename "$STRUCTURE_FILE")
+                                WI_NAME=$(basename "$WORK_ITEMS_FILE")
                                 
-                                echo "[✓] Đã tiếp nhận thành công 2 file Excel upload:"
-                                ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
+                                # Copy giữ nguyên 100% tên file gốc của bạn vào thư mục chạy
+                                cp -f "$STRUCTURE_FILE" "$STRUCT_NAME"
+                                cp -f "$WORK_ITEMS_FILE" "$WI_NAME"
+                                
+                                echo "[✓] Đã tiếp nhận đúng 2 file gốc của bạn:"
+                                echo "    1. Structure File:  $STRUCT_NAME"
+                                echo "    2. Work Items File: $WI_NAME"
+                                ls -lh "$STRUCT_NAME" "$WI_NAME"
                                 
                                 export LIS_USERNAME="${LIS_USERNAME}"
                                 export LIS_PASSWORD="${LIS_PASSWORD}"
@@ -119,8 +125,8 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 export ASSIGNEE="${ASSIGNEE}"
                                 export PROJECT_ID="${PROJECT_ID}"
                                 export AUTHOR="${AUTHOR}"
-                                export STRUCTURE_FILE="structure_template.xlsx"
-                                export WORK_ITEMS_FILE="LIS_import_WI_Sep01.xlsx"
+                                export STRUCTURE_FILE="$STRUCT_NAME"
+                                export WORK_ITEMS_FILE="$WI_NAME"
                                 export HEADLESS="True"
                                 
                                 python3 main.py
