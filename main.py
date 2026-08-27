@@ -74,17 +74,62 @@ def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
     public_label = "BẬT" if public else "TẮT"
     print(f"\n[*] Đang vào mục 'Settings' để cấu hình: Planned = {planned_label}, Public = {public_label}...")
 
-    settings_tab = page.locator("#main-menu a[href*='settings'], #main-menu a:has-text('Settings'), a.settings").first
-    settings_tab.wait_for(state="visible", timeout=10000)
-    settings_tab.click()
+    # 1. Tìm và click Settings trên menu
+    settings_selector = "#main-menu a[href*='settings'], #main-menu a:has-text('Settings'), a.settings, a[href*='/settings']"
+    settings_tab = page.locator(settings_selector).first
+
+    clicked = False
+    if settings_tab.count() > 0 and settings_tab.is_visible():
+        try:
+            settings_tab.click()
+            clicked = True
+        except Exception:
+            pass
+
+    if not clicked:
+        # Nếu menu bị thu gọn vào mục More / ..., thử mở More
+        more_btn = page.locator("#main-menu a.more, #main-menu a:has-text('More'), #main-menu .menu-more, a[title='More']").first
+        if more_btn.count() > 0 and more_btn.is_visible():
+            try:
+                more_btn.click()
+                time.sleep(0.5)
+            except Exception:
+                pass
+
+        # Thử lại click Settings (dù có bị ẩn)
+        settings_tab = page.locator(settings_selector).first
+        if settings_tab.count() > 0:
+            try:
+                settings_tab.click(force=True)
+                clicked = True
+            except Exception:
+                pass
+
+    # Nếu vẫn chưa vào được trang Settings, điều hướng trực tiếp bằng URL của project
+    if not clicked or "settings" not in page.url:
+        match = re.search(r"/projects/([^/?]+)", page.url)
+        if match:
+            proj_id = match.group(1)
+            settings_url = f"{config.LIS_HOME_URL.rstrip('/')}/projects/{proj_id}/settings"
+            print(f"[*] Đang chuyển hướng trực tiếp đến trang Settings: {settings_url}")
+            safe_goto(page, settings_url)
+        else:
+            try:
+                page.evaluate("document.querySelector('a.settings, a[href*=\"settings\"]').click()")
+            except Exception:
+                pass
+
     page.wait_for_load_state("networkidle")
     print(f"[✓] Đã chuyển tới trang Settings: {page.url}")
 
     # Planned checkbox
     planned_checkbox = page.locator("#project_is_planned")
-    planned_checkbox.wait_for(state="attached", timeout=10000)
-    planned_checkbox.set_checked(planned)
-    print(f"  -> [✓] Ô 'Planned': {'ĐƯỢC CHỌN' if planned else 'KHÔNG CHỌN'}")
+    try:
+        planned_checkbox.wait_for(state="attached", timeout=10000)
+        planned_checkbox.set_checked(planned)
+        print(f"  -> [✓] Ô 'Planned': {'ĐƯỢC CHỌN' if planned else 'KHÔNG CHỌN'}")
+    except Exception as e:
+        print(f"  [!] Cảnh báo khi cấu hình ô 'Planned': {e}")
 
     # Public checkbox
     public_checkbox = page.locator("#project_is_public")
@@ -102,11 +147,14 @@ def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
         "#tab-content-info input[type='submit'], "
         "input[type='submit'][value='Save']"
     ).first
-    if save_btn.count() > 0 and save_btn.is_visible():
+    if save_btn.count() > 0:
         print("  [*] Đang bấm nút 'Save' để lưu cài đặt...")
-        save_btn.click()
-        page.wait_for_load_state("networkidle")
-        print("  -> [✓] Đã lưu cài đặt dự án thành công!")
+        try:
+            save_btn.click()
+            page.wait_for_load_state("networkidle")
+            print("  -> [✓] Đã lưu cài đặt dự án thành công!")
+        except Exception as e:
+            print(f"  [!] Cảnh báo khi bấm Save settings: {e}")
 
     return True
 
@@ -636,7 +684,10 @@ def run_automation(data_file_path: str | None = None):
     print("[*] Khởi động trình duyệt với phiên đăng nhập đã lưu...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=config.HEADLESS)
-        context = browser.new_context(storage_state=str(config.AUTH_FILE))
+        context = browser.new_context(
+            storage_state=str(config.AUTH_FILE),
+            viewport={"width": 1920, "height": 1080}
+        )
 
         page = context.new_page()
         print(f"[*] Đang truy cập trang chủ LIS: {config.LIS_HOME_URL}")

@@ -15,7 +15,7 @@ def login_and_save_session(username: str | None = None, password: str | None = N
     print(f"[*] Đang khởi động trình duyệt (Headless={config.HEADLESS})...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=config.HEADLESS)
-        context = browser.new_context()
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
 
         print(f"[*] Đang truy cập trang đăng nhập: {config.LIS_HOME_URL}")
