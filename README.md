@@ -15,7 +15,6 @@ Automation-LIS/
 ├── data_loader.py              # Nạp dữ liệu & hỗ trợ ghi đè biến môi trường
 ├── sprint_data.json            # File cấu hình dữ liệu Sprint
 ├── requirements.txt            # Danh sách thư viện Python cần thiết
-├── .env.example                # File mẫu biến môi trường
 ├── .gitignore                  # Bỏ qua file nhạy cảm & virtualenv
 └── README.md                   # Hướng dẫn chi tiết
 ```
