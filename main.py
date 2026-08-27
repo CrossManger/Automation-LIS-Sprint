@@ -18,6 +18,20 @@ def get_sprint_name(item: dict) -> str:
     return item.get("Name Sprint") or item.get("Name", "Sprint mới")
 
 
+def safe_goto(page_obj: Page, url: str, max_retries: int = 5, timeout: int = 60000):
+    """Truy cập URL an toàn với cơ chế tự động thử lại khi gặp sự cố mạng (ERR_NETWORK_CHANGED, timeout, v.v.)."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            page_obj.goto(url, timeout=timeout, wait_until="load")
+            return
+        except Exception as e:
+            print(f"[!] Cảnh báo mạng khi truy cập {url} (Lần thử {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+            else:
+                raise
+
+
 def check_form_error(page: Page, entity_name: str) -> bool:
     """
     Kiểm tra lỗi phản hồi từ server LIS sau khi submit form.
@@ -626,7 +640,7 @@ def run_automation(data_file_path: str = "sprint_data.json"):
 
         page = context.new_page()
         print(f"[*] Đang truy cập trang chủ LIS: {config.LIS_HOME_URL}")
-        page.goto(config.LIS_HOME_URL)
+        safe_goto(page, config.LIS_HOME_URL)
         page.wait_for_load_state("networkidle")
 
         # Kiểm tra xem có bị chuyển về trang login (phiên hết hạn) không
@@ -772,7 +786,7 @@ def run_automation(data_file_path: str = "sprint_data.json"):
         # ==========================================
         print(f"\n[*] Đang mở thêm Tab mới cho trang Importer: {config.IMPORTER_URL}...")
         importer_page = context.new_page()
-        importer_page.goto(config.IMPORTER_URL)
+        safe_goto(importer_page, config.IMPORTER_URL)
         importer_page.wait_for_load_state("networkidle")
         print(f"[✓] Đã mở thành công Tab 2 (Importer): {importer_page.title()} ({importer_page.url})")
 
@@ -812,7 +826,7 @@ def run_automation(data_file_path: str = "sprint_data.json"):
             importer_page.bring_to_front()
 
             # Tải lại trang Importer để làm mới form sạch sẽ
-            importer_page.goto(config.IMPORTER_URL)
+            safe_goto(importer_page, config.IMPORTER_URL)
             importer_page.wait_for_load_state("networkidle")
 
             if not fill_importer_form(importer_page, milestone, work_items_task_id, file_key="Upload Work Items File"):

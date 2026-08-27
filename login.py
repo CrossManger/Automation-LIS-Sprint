@@ -19,7 +19,16 @@ def login_and_save_session(username: str | None = None, password: str | None = N
         page = context.new_page()
 
         print(f"[*] Đang truy cập trang đăng nhập: {config.LIS_HOME_URL}")
-        page.goto(config.LIS_HOME_URL)
+        for attempt in range(1, 6):
+            try:
+                page.goto(config.LIS_HOME_URL, timeout=60000, wait_until="load")
+                break
+            except Exception as e:
+                print(f"[!] Cảnh báo mạng khi truy cập login (Lần {attempt}/5): {e}")
+                if attempt == 5:
+                    raise
+                import time
+                time.sleep(2 * attempt)
 
         # Điền form đăng nhập
         print("[*] Đang điền thông tin đăng nhập...")
