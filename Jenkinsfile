@@ -12,6 +12,10 @@ pipeline {
         string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
         string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g. 786 for Team MAX)')
         string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
+        
+        // Đặt tên đích của File Parameter đúng với tên file kịch bản cần (Jenkins sẽ tự động lưu file upload thành tên này)
+        file(name: 'structure_template.xlsx', description: 'Structure File (Template)')
+        file(name: 'LIS_import_WI_Sep01.xlsx', description: 'Work Items File')
     }
 
     environment {
@@ -83,11 +87,11 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             }
         }
 
-        stage('3. Thực Thi Tự Động Hóa LIS & Importer') {
+        stage('3. Tiếp Nhận File Upload & Thực Thi Tự Động Hóa') {
             steps {
                 script {
                     echo "=========================================="
-                    echo "▶ Khởi chạy kịch bản tự động hóa..."
+                    echo "▶ Tiếp nhận 2 file Excel và khởi chạy tự động hóa..."
                     echo "User LIS: ${params.LIS_USERNAME}"
                     echo "Sprint:   ${params.NAME_SPRINT}"
                     echo "Assignee: ${params.ASSIGNEE}"
@@ -96,14 +100,21 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     sh '''
                         export PATH="$HOME/.local/bin:$PATH"
                         
-                        # Kiểm tra file Excel trong repository
-                        if [ ! -f "structure_template.xlsx" ] || [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
-                            echo "❌ LỖI: Thiếu file structure_template.xlsx hoặc LIS_import_WI_Sep01.xlsx trong repository!"
-                            ls -la
+                        echo "--- Kiểm tra 2 file Excel do bạn tải lên ---"
+                        
+                        # Kiểm tra file Structure Template
+                        if [ ! -f "structure_template.xlsx" ]; then
+                            echo "❌ LỖI: Bạn chưa tải lên file Structure Template!"
                             exit 1
                         fi
                         
-                        echo "[✓] Đã sẵn sàng 2 file Excel:"
+                        # Kiểm tra file Work Items
+                        if [ ! -f "LIS_import_WI_Sep01.xlsx" ]; then
+                            echo "❌ LỖI: Bạn chưa tải lên file Work Items!"
+                            exit 1
+                        fi
+                        
+                        echo "[✓] Đã tiếp nhận thành công 2 file Excel bạn vừa tải lên:"
                         ls -lh structure_template.xlsx LIS_import_WI_Sep01.xlsx
                         
                         export LIS_USERNAME="${LIS_USERNAME}"
@@ -132,9 +143,9 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
             echo "=========================================="
             echo "🏁 Kết thúc tiến trình Build trên Jenkins."
             echo "=========================================="
-            // Dọn dẹp session sau khi build xong để bảo mật
+            // Dọn dẹp các file Excel sau khi build xong để bảo mật và sẵn sàng cho lần upload tiếp theo
             sh '''
-                rm -f auth.json
+                rm -f structure_template.xlsx LIS_import_WI_Sep01.xlsx auth.json
             '''
         }
         success {
