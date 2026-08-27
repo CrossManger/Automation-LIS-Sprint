@@ -74,52 +74,49 @@ def set_project_settings(page: Page, planned: bool, public: bool) -> bool:
     public_label = "BẬT" if public else "TẮT"
     print(f"\n[*] Đang vào mục 'Settings' để cấu hình: Planned = {planned_label}, Public = {public_label}...")
 
-    # 1. Tìm và click Settings trên menu
+    # 1. Thử lấy trực tiếp đường dẫn href của Settings tab
     settings_selector = "#main-menu a[href*='settings'], #main-menu a:has-text('Settings'), a.settings, a[href*='/settings']"
     settings_tab = page.locator(settings_selector).first
 
-    clicked = False
-    if settings_tab.count() > 0 and settings_tab.is_visible():
+    if settings_tab.count() > 0:
         try:
-            settings_tab.click()
-            clicked = True
+            href = settings_tab.get_attribute("href")
+            if href:
+                if href.startswith("/"):
+                    href = f"{config.LIS_HOME_URL.rstrip('/')}{href}"
+                safe_goto(page, href)
+                page.wait_for_load_state("networkidle")
         except Exception:
             pass
 
-    if not clicked:
-        # Nếu menu bị thu gọn vào mục More / ..., thử mở More
-        more_btn = page.locator("#main-menu a.more, #main-menu a:has-text('More'), #main-menu .menu-more, a[title='More']").first
-        if more_btn.count() > 0 and more_btn.is_visible():
-            try:
-                more_btn.click()
-                time.sleep(0.5)
-            except Exception:
-                pass
-
-        # Thử lại click Settings (dù có bị ẩn)
-        settings_tab = page.locator(settings_selector).first
-        if settings_tab.count() > 0:
-            try:
-                settings_tab.click(force=True)
-                clicked = True
-            except Exception:
-                pass
-
-    # Nếu vẫn chưa vào được trang Settings, điều hướng trực tiếp bằng URL của project
-    if not clicked or "settings" not in page.url:
+    # 2. Nếu chưa vào được trang Settings, trích xuất project id từ breadcrumb hoặc URL hiện tại
+    if "settings" not in page.url:
+        proj_id = None
         match = re.search(r"/projects/([^/?]+)", page.url)
         if match:
             proj_id = match.group(1)
+        else:
+            proj_link = page.locator("#header h1 a, .breadcrumbs a[href*='/projects/'], #main-menu a[href*='/projects/']").first
+            if proj_link.count() > 0:
+                try:
+                    p_href = proj_link.get_attribute("href") or ""
+                    m = re.search(r"/projects/([^/?]+)", p_href)
+                    if m:
+                        proj_id = m.group(1)
+                except Exception:
+                    pass
+
+        if proj_id:
             settings_url = f"{config.LIS_HOME_URL.rstrip('/')}/projects/{proj_id}/settings"
-            print(f"[*] Đang chuyển hướng trực tiếp đến trang Settings: {settings_url}")
             safe_goto(page, settings_url)
+            page.wait_for_load_state("networkidle")
         else:
             try:
-                page.evaluate("document.querySelector('a.settings, a[href*=\"settings\"]').click()")
+                settings_tab.click(force=True)
+                page.wait_for_load_state("networkidle")
             except Exception:
                 pass
 
-    page.wait_for_load_state("networkidle")
     print(f"[✓] Đã chuyển tới trang Settings: {page.url}")
 
     # Planned checkbox
