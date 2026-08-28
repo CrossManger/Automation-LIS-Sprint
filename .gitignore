@@ -35,3 +35,9 @@ yarn-error.log*
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Documentation & Local Templates
+HowTo*
+*.docx
+*.odt
+.~lock.*
