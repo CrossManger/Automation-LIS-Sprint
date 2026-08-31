@@ -73,4 +73,9 @@ def load_milestone_from_file(file_path: str | None = None) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print("Dữ liệu nạp:", load_milestone_from_file())
+    import sys
+    try:
+        print("Dữ liệu nạp:", load_milestone_from_file())
+    except Exception as e:
+        print(f"[X] LỖI NẠP DỮ LIỆU: {e}")
+        sys.exit(1)

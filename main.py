@@ -474,6 +474,10 @@ def fill_task_form(page: Page, item: dict) -> tuple[bool, str | None]:
 
     # 9. Trích xuất và lưu Task ID
     created_task_id = extract_task_id(page)
+    if not created_task_id:
+        print(f"\n[X] LỖI: Không thể trích xuất Task ID của Task '{task_subject}' sau khi tạo!")
+        return False, None
+
     print(f"\n[✓] Đã tạo thành công Task '{task_subject}' (Task ID: #{created_task_id})!")
     return True, created_task_id
 

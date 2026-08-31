@@ -76,4 +76,6 @@ def login_and_save_session(username: str | None = None, password: str | None = N
 
 
 if __name__ == "__main__":
-    login_and_save_session()
+    import sys
+    if not login_and_save_session():
+        sys.exit(1)
