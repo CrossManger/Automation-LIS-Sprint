@@ -9,9 +9,9 @@ pipeline {
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
         choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (e.g. Trang Pham-Tran-Minh)')
         string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID Importer (e.g. 786 for Team MAX)')
-        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer')
+        string(name: 'AUTHOR', defaultValue: '', description: 'Author Importer (e.g. trangptm)')
         
         // Nhận 2 file Excel trực tiếp từ máy tính của người dùng
         base64File(name: 'STRUCTURE_FILE', description: 'Structure File (Template)')
