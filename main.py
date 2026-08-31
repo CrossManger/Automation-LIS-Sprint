@@ -18,8 +18,8 @@ def get_sprint_name(item: dict) -> str:
     return item.get("Name Sprint") or item.get("Name", "Sprint mới")
 
 
-def safe_goto(page_obj: Page, url: str, max_retries: int = 5, timeout: int = 60000):
-    """Truy cập URL an toàn với cơ chế tự động thử lại khi gặp sự cố mạng (ERR_NETWORK_CHANGED, timeout, v.v.)."""
+def safe_goto(page_obj: Page, url: str, max_retries: int = 6, timeout: int = 60000):
+    """Truy cập URL an toàn với cơ chế tự động thử lại tối đa 6 lần khi gặp sự cố mạng (ERR_NETWORK_CHANGED, timeout, v.v.)."""
     for attempt in range(1, max_retries + 1):
         try:
             page_obj.goto(url, timeout=timeout, wait_until="load")
