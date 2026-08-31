@@ -575,7 +575,8 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
     # 5. Upload file từ đường dẫn đã kiểm tra ở trên
     file_input = importer_page.locator("#inputFile, input[type='file'][name='file'], input[type='file']").first
     file_input.set_input_files(str(upload_file_path))
-    print(f"  -> [✓] Đã upload file cấu hình ({file_key}): '{upload_file_path.name}'")
+    file_desc = "File Cấu trúc Sprint (Structure Template)" if file_key == "Upload File" else "File Chi tiết Work Items"
+    print(f"  -> [✓] Đã đính kèm thành công {file_desc}: '{upload_file_path.name}' vào form Importer")
 
     # 6. Tích chọn ô Checkbox "I already set Project Status to 'planing'"
     planning_checkbox = importer_page.locator("input[ng-model='project_planing'], input[type='checkbox']").first
