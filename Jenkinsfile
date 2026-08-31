@@ -88,46 +88,27 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
         stage('3. Tiếp Nhận File Upload & Thực Thi Tự Động Hóa') {
             steps {
                 script {
-                    // 1. Lấy tên file gốc do người dùng chọn trên máy tính
-                    def structName = params.STRUCTURE_FILE?.toString()?.trim() ?: "structure_template.xlsx"
-                    def wiName = params.WORK_ITEMS_FILE?.toString()?.trim() ?: "work_items_detail.xlsx"
-                    
-                    // Lấy tên file ngắn gọn (bỏ đường dẫn thư mục nếu có)
-                    structName = structName.contains('/') ? structName.substring(structName.lastIndexOf('/') + 1) : structName
-                    structName = structName.contains('\\') ? structName.substring(structName.lastIndexOf('\\') + 1) : structName
-                    wiName = wiName.contains('/') ? wiName.substring(wiName.lastIndexOf('/') + 1) : wiName
-                    wiName = wiName.contains('\\') ? wiName.substring(wiName.lastIndexOf('\\') + 1) : wiName
-
-                    // Đảm bảo tên file luôn có đuôi .xlsx hoặc .xls hợp lệ để Importer không bị lỗi
-                    if (!structName.toLowerCase().endsWith('.xlsx') && !structName.toLowerCase().endsWith('.xls')) {
-                        structName = "${structName}.xlsx"
-                    }
-                    if (!wiName.toLowerCase().endsWith('.xlsx') && !wiName.toLowerCase().endsWith('.xls')) {
-                        wiName = "${wiName}.xlsx"
-                    }
-
                     echo "=========================================="
-                    echo "▶ Tiếp nhận 2 file Excel và khởi chạy tự động hóa..."
+                    echo "▶ Tiếp nhận thông tin và khởi chạy tự động hóa..."
                     echo "User LIS: ${params.LIS_USERNAME}"
                     echo "Sprint:   ${params.NAME_SPRINT}"
                     echo "Assignee: ${params.ASSIGNEE}"
-                    echo "File 1:   ${structName}"
-                    echo "File 2:   ${wiName}"
                     echo "=========================================="
 
                     withFileParameter('STRUCTURE_FILE') {
                         withFileParameter('WORK_ITEMS_FILE') {
-                            sh """
-                                export PATH="\$HOME/.local/bin:\$PATH"
+                            sh '''
+                                export PATH="$HOME/.local/bin:$PATH"
                                 
-                                # Sao chép đúng 100% tên file gốc mà người dùng đã tải lên
-                                cp -f "\$STRUCTURE_FILE" "${structName}"
-                                cp -f "\$WORK_ITEMS_FILE" "${wiName}"
+                                # Chuẩn hóa 2 file tải lên sang định dạng Excel .xlsx hợp lệ cho Importer
+                                cp -f "$STRUCTURE_FILE" "structure_template.xlsx"
+                                cp -f "$WORK_ITEMS_FILE" "work_items_detail.xlsx"
                                 
-                                echo "[✓] Đã tiếp nhận đúng 2 file gốc của bạn:"
-                                echo "    1. Structure File:  ${structName}"
-                                echo "    2. Work Items File: ${wiName}"
-                                ls -lh "${structName}" "${wiName}"
+                                echo "=========================================="
+                                echo "📁 [✓] TIẾP NHẬN THÀNH CÔNG:"
+                                echo "  1. File Cấu trúc Sprint (Tầng 1)"
+                                echo "  2. File Chi tiết Work Items (Tầng 2)"
+                                echo "=========================================="
                                 
                                 export LIS_USERNAME="${LIS_USERNAME}"
                                 export LIS_PASSWORD="${LIS_PASSWORD}"
@@ -139,12 +120,12 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 export ASSIGNEE="${ASSIGNEE}"
                                 export PROJECT_ID="${PROJECT_ID}"
                                 export AUTHOR="${LIS_USERNAME}"
-                                export STRUCTURE_FILE="${structName}"
-                                export WORK_ITEMS_FILE="${wiName}"
+                                export STRUCTURE_FILE="structure_template.xlsx"
+                                export WORK_ITEMS_FILE="work_items_detail.xlsx"
                                 export HEADLESS="True"
                                 
                                 python3 main.py
-                            """
+                            '''
                         }
                     }
                 }
