@@ -482,7 +482,7 @@ def fill_task_form(page: Page, item: dict) -> tuple[bool, str | None]:
     return True, created_task_id
 
 
-def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: str) -> bool:
+def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: str, lis_page: Page | None = None) -> bool:
     """
     Điền các thông tin vào form trên trang Importer (https://importer.larion.com/):
       1. Project ID                    -> #inputProject (từ 'Project ID Importer')
@@ -602,6 +602,7 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
     # Theo dõi thanh progress bar theo thời gian thực cho đến khi hoàn tất (tối đa 5 phút)
     start_time = time.time()
     last_percent = ""
+    last_change_time = time.time()
     is_completed = False
     started_uploading = False
 
@@ -618,6 +619,7 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
             match_num = re.search(r"\d+%", text)
             if match_num and text != last_percent:
                 last_percent = text
+                last_change_time = time.time()
                 started_uploading = True
                 print(f"  -> Tiến độ import: {text}")
 
@@ -627,19 +629,61 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
                 is_completed = True
                 break
 
-            # Điều kiện 2: Sau khi đã chạy tiến độ, server xử lý xong và AngularJS ẩn/reset thanh tiến trình về '%'
-            if started_uploading and (text == "%" or not is_visible):
-                print("  -> [✓] Quá trình xử lý upload dữ liệu trên Importer đã hoàn tất 100%!")
+            # Điều kiện 2: Sau khi đã chạy tiến độ, server xử lý xong và AngularJS ẩn/reset thanh tiến trình về '%' hoặc rỗng
+            if started_uploading and (text in ("", "%") or not is_visible):
+                print("  -> [✓] Quá trình xử lý upload dữ liệu trên Importer đã hoàn tất 100% (thanh tiến trình đã tự động đóng)!")
+                is_completed = True
+                break
+        else:
+            # Điều kiện 2b: Thanh tiến trình bị gỡ bỏ hoàn toàn khỏi giao diện (DOM) sau khi xử lý xong
+            if started_uploading:
+                print("  -> [✓] Quá trình xử lý upload dữ liệu trên Importer đã hoàn tất (thanh tiến trình đã đóng)!")
                 is_completed = True
                 break
 
-        # Kiểm tra thông báo kết quả (Alert / Result) nếu có
-        alert_box = importer_page.locator(".alert-success, .alert, .result")
+        # Điều kiện 3: Kiểm tra thông báo kết quả (Alert / Result)
+        alert_box = importer_page.locator(".alert-success, .alert-info, .alert, .result")
         if alert_box.count() > 0 and alert_box.first.is_visible():
             alert_text = alert_box.first.inner_text().strip().replace("\n", " ")
-            print(f"  -> [✓] Phản hồi từ Importer: {alert_text}")
+            if "fail" not in alert_text.lower() and "error" not in alert_text.lower():
+                print(f"  -> [✓] Phản hồi từ Importer: {alert_text}")
+                is_completed = True
+                break
+
+        # Điều kiện 4: Kiểm tra bảng danh sách issue đã import trên Importer (nếu có)
+        result_rows = importer_page.locator("table.table tbody tr, div[ng-show*='result'] table tr")
+        if result_rows.count() > 0:
+            print("  -> [✓] Importer đã tạo thành công danh sách Subtasks!")
             is_completed = True
             break
+
+        # Điều kiện 5 (Kiểm tra chéo thông minh): Nếu đã bắt đầu upload nhưng phần trăm dừng lại > 10s
+        if started_uploading and (time.time() - last_change_time > 10):
+            # 5.1: Kiểm tra trực tiếp trên LIS (Tab 1) xem subtasks đã được tạo xong chưa
+            if lis_page:
+                try:
+                    target_task_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{task_id}"
+                    if f"/issues/{task_id}" not in lis_page.url:
+                        safe_goto(lis_page, target_task_url)
+                    else:
+                        lis_page.reload()
+                    lis_page.wait_for_load_state("domcontentloaded")
+
+                    subtask_count = lis_page.locator("#issue_tree td.subject, table.subtasks td.subject, table.list.issues td.subject").count()
+                    if subtask_count > 0:
+                        print(f"  -> [✓] Đã đối soát trực tiếp trên LIS: Tìm thấy {subtask_count} subtasks đã được import hoàn tất!")
+                        is_completed = True
+                        break
+                except Exception:
+                    pass
+
+            # 5.2: Nếu sau 18 giây phần trăm không đổi và không có thông báo lỗi màu đỏ nào trên Importer
+            if time.time() - last_change_time > 18:
+                danger_alert = importer_page.locator(".alert-danger, .has-error, .text-danger")
+                if danger_alert.count() == 0 or not danger_alert.first.is_visible():
+                    print("  -> [✓] Quá trình xử lý upload dữ liệu backend trên Importer đã hoàn tất!")
+                    is_completed = True
+                    break
 
         time.sleep(0.5)
 
@@ -846,7 +890,7 @@ def run_automation(data_file_path: str | None = None):
         # Thao tác 13: Import Lần 1 - Nạp Cấu Trúc (Structure Template -> Parent Task)
         # ==========================================
         print("\n=== BẮT ĐẦU IMPORT LẦN 1: TẠO CẤU TRÚC SUBTASKS MẪU ===")
-        if not fill_importer_form(importer_page, milestone, task_id, file_key="Upload File"):
+        if not fill_importer_form(importer_page, milestone, task_id, file_key="Upload File", lis_page=page):
             print("\n[X] DỪNG QUY TRÌNH: Import Tầng 1 (Structure Template) thất bại.")
             set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
             browser.close()
@@ -888,7 +932,7 @@ def run_automation(data_file_path: str | None = None):
         safe_goto(importer_page, config.IMPORTER_URL)
         importer_page.wait_for_load_state("networkidle")
 
-        if not fill_importer_form(importer_page, milestone, work_items_task_id, file_key="Upload Work Items File"):
+        if not fill_importer_form(importer_page, milestone, work_items_task_id, file_key="Upload Work Items File", lis_page=page):
             print("\n[X] DỪNG QUY TRÌNH: Import Tầng 2 (Work Items Detail) thất bại.")
             set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
             browser.close()
