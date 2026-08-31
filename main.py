@@ -511,6 +511,17 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
         print(f"\n[X] LỖI: Không tìm thấy file upload '{upload_filename}' tại đường dẫn: {config.BASE_DIR / p_up.name}")
         return False
 
+    # Đảm bảo file upload luôn có phần mở rộng .xlsx hoặc .xls hợp lệ để Importer không bị nghẽn
+    if upload_file_path.suffix.lower() not in [".xlsx", ".xls"]:
+        import shutil
+        valid_excel_path = upload_file_path.parent / f"{upload_file_path.stem}.xlsx"
+        try:
+            shutil.copy2(upload_file_path, valid_excel_path)
+            upload_file_path = valid_excel_path
+            print(f"  [*] Đã chuyển đổi tên file tạm sang chuẩn Excel: '{upload_file_path.name}'")
+        except Exception:
+            pass
+
     # 1. Project ID Importer
     proj_id_importer = item.get("Project ID Importer", "786")
     project_input = importer_page.locator("#inputProject, input[name='project']").first
@@ -629,7 +640,8 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
         time.sleep(0.5)
 
     if not is_completed:
-        print("  [!] Cảnh báo: Đã đợi quá thời gian chờ, tiếp tục chuyển bước.")
+        print(f"\n[X] LỖI: Quá trình import file '{file_key}' trên Importer thất bại (không đạt 100% sau thời gian chờ tối đa 5 phút).")
+        return False
 
     print("\n[✓] Quá trình import dữ liệu trên Importer đã hoàn tất!")
     return True
@@ -648,15 +660,15 @@ def run_automation(data_file_path: str | None = None):
         sprint_name = get_sprint_name(milestone)
         print(f"[✓] Đã nạp thành công dữ liệu Sprint: '{sprint_name}'")
     except Exception as e:
-        print(f"[X] Lỗi nạp thông tin Sprint: {e}")
-        return
+        print(f"[X] LỖI NẠP THÔNG TIN SPRINT: {e}")
+        sys.exit(1)
 
     # 2. Kiểm tra nếu chưa có file phiên đăng nhập thì đăng nhập trước
     if not config.AUTH_FILE.exists():
         print("[*] Chưa có file phiên đăng nhập (auth.json). Đang tiến hành đăng nhập lần đầu...")
         if not login_and_save_session():
             print("[X] Đăng nhập thất bại. Dừng chương trình.")
-            return
+            sys.exit(1)
 
     print("[*] Khởi động trình duyệt với phiên đăng nhập đã lưu...")
     with sync_playwright() as p:
@@ -679,7 +691,7 @@ def run_automation(data_file_path: str | None = None):
             browser.close()
             if not login_and_save_session():
                 print("[X] Đăng nhập lại thất bại. Dừng chương trình.")
-                return
+                sys.exit(1)
             return run_automation(data_file_path)
 
         print(f"[✓] Đã vào trang chủ: {page.title()} ({page.url})")
@@ -746,9 +758,9 @@ def run_automation(data_file_path: str | None = None):
         # Thao tác 5: Điền form tạo milestone
         # ==========================================
         if not fill_milestone_form(page, milestone):
-            print("\n[!] Dừng luồng tiếp theo do tạo Milestone thất bại.")
+            print("\n[X] DỪNG QUY TRÌNH: Tạo Milestone thất bại.")
             browser.close()
-            return
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 6: Nhấp vào mục "Agile board"
@@ -776,15 +788,15 @@ def run_automation(data_file_path: str | None = None):
             print("     1. Tài khoản không có quyền tạo Sprint trong dự án này.")
             print("     2. Dự án này chưa bật tính năng Agile / Scrum board.")
             browser.close()
-            return
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 8: Điền form và tạo Sprint
         # ==========================================
         if not fill_sprint_form(page, milestone):
-            print("\n[!] Dừng luồng tiếp theo do tạo Sprint thất bại.")
+            print("\n[X] DỪNG QUY TRÌNH: Tạo Sprint thất bại.")
             browser.close()
-            return
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 9: Settings - Planned = BẬT, Public = TẮT
@@ -811,10 +823,11 @@ def run_automation(data_file_path: str | None = None):
         # ==========================================
         is_task_success, task_id = fill_task_form(page, milestone)
 
-        if not is_task_success:
-            print("\n[!] Dừng quy trình do không tạo được Task.")
+        if not is_task_success or not task_id:
+            print("\n[X] DỪNG QUY TRÌNH: Không tạo được Parent Task.")
+            set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
             browser.close()
-            return
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 12: Mở thêm Tab mới cho trang Importer
@@ -830,9 +843,10 @@ def run_automation(data_file_path: str | None = None):
         # ==========================================
         print("\n=== BẮT ĐẦU IMPORT LẦN 1: TẠO CẤU TRÚC SUBTASKS MẪU ===")
         if not fill_importer_form(importer_page, milestone, task_id, file_key="Upload File"):
-            print("\n[!] Dừng quy trình do Import lần 1 thất bại hoặc thiếu file cấu hình.")
+            print("\n[X] DỪNG QUY TRÌNH: Import Tầng 1 (Structure Template) thất bại.")
+            set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
             browser.close()
-            return
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 14: Chuyển tiêu điểm (Focus) trở lại Tab 1 (LIS)
@@ -852,34 +866,41 @@ def run_automation(data_file_path: str | None = None):
         print("\n[*] Đang tìm và trích xuất Task ID của task con 'WORK ITEMS'...")
         work_items_task_id = extract_work_items_task_id(page)
 
+        if not work_items_task_id:
+            print("\n[X] LỖI NGHIÊM TRỌNG: Không tìm thấy task con 'WORK ITEMS' trên LIS sau khi Import Tầng 1!")
+            print("    -> Vui lòng kiểm tra lại file Structure Template hoặc kiểm tra trực tiếp trên LIS.")
+            set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
+            browser.close()
+            sys.exit(1)
+
         # ==========================================
         # Thao tác 16: Import Lần 2 - Nạp Chi Tiết WORK ITEMS (vào work_items_task_id)
         # ==========================================
-        if work_items_task_id:
-            print("\n=== BẮT ĐẦU IMPORT LẦN 2: NẠP CHI TIẾT WORK ITEMS ===")
-            print(f"[*] Đang chuyển tiêu điểm sang Tab 2 (Importer) để nạp dữ liệu cho Task #{work_items_task_id}...")
-            importer_page.bring_to_front()
+        print("\n=== BẮT ĐẦU IMPORT LẦN 2: NẠP CHI TIẾT WORK ITEMS ===")
+        print(f"[*] Đang chuyển tiêu điểm sang Tab 2 (Importer) để nạp dữ liệu cho Task #{work_items_task_id}...")
+        importer_page.bring_to_front()
 
-            # Tải lại trang Importer để làm mới form sạch sẽ
-            safe_goto(importer_page, config.IMPORTER_URL)
-            importer_page.wait_for_load_state("networkidle")
+        # Tải lại trang Importer để làm mới form sạch sẽ
+        safe_goto(importer_page, config.IMPORTER_URL)
+        importer_page.wait_for_load_state("networkidle")
 
-            if not fill_importer_form(importer_page, milestone, work_items_task_id, file_key="Upload Work Items File"):
-                print("\n[!] Dừng quy trình do Import lần 2 thất bại hoặc thiếu file cấu hình.")
-                browser.close()
-                return
+        if not fill_importer_form(importer_page, milestone, work_items_task_id, file_key="Upload Work Items File"):
+            print("\n[X] DỪNG QUY TRÌNH: Import Tầng 2 (Work Items Detail) thất bại.")
+            set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
+            browser.close()
+            sys.exit(1)
 
-            # ==========================================
-            # Thao tác 17: Chuyển tiêu điểm trở lại Tab 1 (LIS) để kiểm tra kết quả cuối cùng
-            # ==========================================
-            print("\n[*] Đang chuyển tiêu điểm trở lại Tab 1 (LIS)...")
-            page.bring_to_front()
-            try:
-                page.reload()
-                page.wait_for_load_state("networkidle")
-            except Exception:
-                pass
-            print("[✓] Đã tải lại và hiển thị toàn bộ cây Task hoàn chỉnh trên LIS!")
+        # ==========================================
+        # Thao tác 17: Chuyển tiêu điểm trở lại Tab 1 (LIS) để kiểm tra kết quả cuối cùng
+        # ==========================================
+        print("\n[*] Đang chuyển tiêu điểm trở lại Tab 1 (LIS)...")
+        page.bring_to_front()
+        try:
+            page.reload()
+            page.wait_for_load_state("networkidle")
+        except Exception:
+            pass
+        print("[✓] Đã tải lại và hiển thị toàn bộ cây Task hoàn chỉnh trên LIS!")
 
         # ==========================================
         # Thao tác 18: Khôi phục cài đặt Settings (Public = BẬT, Planned = TẮT)

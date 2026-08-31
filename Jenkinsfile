@@ -102,18 +102,14 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                             sh '''
                                 export PATH="$HOME/.local/bin:$PATH"
                                 
-                                # Lấy đúng tên file gốc do bạn tải lên
-                                STRUCT_NAME=$(basename "$STRUCTURE_FILE")
-                                WI_NAME=$(basename "$WORK_ITEMS_FILE")
+                                # Đảm bảo file tải lên luôn có phần mở rộng .xlsx hợp lệ cho trang Importer
+                                cp -f "$STRUCTURE_FILE" "structure_template.xlsx"
+                                cp -f "$WORK_ITEMS_FILE" "work_items_detail.xlsx"
                                 
-                                # Copy giữ nguyên 100% tên file gốc của bạn vào thư mục chạy
-                                cp -f "$STRUCTURE_FILE" "$STRUCT_NAME"
-                                cp -f "$WORK_ITEMS_FILE" "$WI_NAME"
-                                
-                                echo "[✓] Đã tiếp nhận đúng 2 file gốc của bạn:"
-                                echo "    1. Structure File:  $STRUCT_NAME"
-                                echo "    2. Work Items File: $WI_NAME"
-                                ls -lh "$STRUCT_NAME" "$WI_NAME"
+                                echo "[✓] Đã chuẩn hóa 2 file Excel sẵn sàng cho Importer:"
+                                echo "    1. Structure File:  structure_template.xlsx"
+                                echo "    2. Work Items File: work_items_detail.xlsx"
+                                ls -lh structure_template.xlsx work_items_detail.xlsx
                                 
                                 export LIS_USERNAME="${LIS_USERNAME}"
                                 export LIS_PASSWORD="${LIS_PASSWORD}"
@@ -125,8 +121,8 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 export ASSIGNEE="${ASSIGNEE}"
                                 export PROJECT_ID="${PROJECT_ID}"
                                 export AUTHOR="${AUTHOR}"
-                                export STRUCTURE_FILE="$STRUCT_NAME"
-                                export WORK_ITEMS_FILE="$WI_NAME"
+                                export STRUCTURE_FILE="structure_template.xlsx"
+                                export WORK_ITEMS_FILE="work_items_detail.xlsx"
                                 export HEADLESS="True"
                                 
                                 python3 main.py
