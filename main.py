@@ -555,8 +555,8 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
         issue_input.press("Tab")
         print(f"  -> [✓] Đã điền Parent Task ID: '{task_id}'")
 
-    # 3. Author Importer
-    author_importer = item.get("Author Importer", config.LIS_USERNAME or "")
+    # 3. Author Importer (Tự động dùng LIS Username)
+    author_importer = item.get("Author Importer") or config.LIS_USERNAME or os.getenv("LIS_USERNAME", "")
     if author_importer:
         author_input = importer_page.locator("input[name='author'], input[placeholder*='Redmine Login']").first
         author_input.wait_for(state="visible", timeout=10000)
@@ -564,7 +564,7 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
         author_input.dispatch_event("input")
         author_input.dispatch_event("change")
         author_input.press("Tab")
-        print(f"  -> [✓] Đã điền Author: '{author_importer}'")
+        print(f"  -> [✓] Đã điền Author (từ LIS Username): '{author_importer}'")
 
     # 4. Chọn Radio 'Google Doc' (bỏ chọn MS-Project)
     google_doc_radio = importer_page.locator("input[type='radio'][value='google-doc']").first
@@ -602,7 +602,6 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
     # Theo dõi thanh progress bar theo thời gian thực cho đến khi hoàn tất (tối đa 5 phút)
     start_time = time.time()
     last_percent = ""
-    last_change_time = time.time()
     is_completed = False
     started_uploading = False
 
@@ -619,7 +618,6 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
             match_num = re.search(r"\d+%", text)
             if match_num and text != last_percent:
                 last_percent = text
-                last_change_time = time.time()
                 started_uploading = True
                 print(f"  -> Tiến độ import: {text}")
 
@@ -631,7 +629,7 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
 
             # Điều kiện 2: Sau khi đã chạy tiến độ, server xử lý xong và AngularJS ẩn/reset thanh tiến trình về '%' hoặc rỗng
             if started_uploading and (text in ("", "%") or not is_visible):
-                print("  -> [✓] Quá trình xử lý upload dữ liệu trên Importer đã hoàn tất 100% (thanh tiến trình đã tự động đóng)!")
+                print("  -> [✓] Quá trình xử lý upload dữ liệu trên Importer đã hoàn tất (thanh tiến trình đã tự động đóng)!")
                 is_completed = True
                 break
         else:
@@ -640,50 +638,6 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
                 print("  -> [✓] Quá trình xử lý upload dữ liệu trên Importer đã hoàn tất (thanh tiến trình đã đóng)!")
                 is_completed = True
                 break
-
-        # Điều kiện 3: Kiểm tra thông báo kết quả (Alert / Result)
-        alert_box = importer_page.locator(".alert-success, .alert-info, .alert, .result")
-        if alert_box.count() > 0 and alert_box.first.is_visible():
-            alert_text = alert_box.first.inner_text().strip().replace("\n", " ")
-            if "fail" not in alert_text.lower() and "error" not in alert_text.lower():
-                print(f"  -> [✓] Phản hồi từ Importer: {alert_text}")
-                is_completed = True
-                break
-
-        # Điều kiện 4: Kiểm tra bảng danh sách issue đã import trên Importer (nếu có)
-        result_rows = importer_page.locator("table.table tbody tr, div[ng-show*='result'] table tr")
-        if result_rows.count() > 0:
-            print("  -> [✓] Importer đã tạo thành công danh sách Subtasks!")
-            is_completed = True
-            break
-
-        # Điều kiện 5 (Kiểm tra chéo thông minh): Nếu đã bắt đầu upload nhưng phần trăm dừng lại > 10s
-        if started_uploading and (time.time() - last_change_time > 10):
-            # 5.1: Kiểm tra trực tiếp trên LIS (Tab 1) xem subtasks đã được tạo xong chưa
-            if lis_page:
-                try:
-                    target_task_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{task_id}"
-                    if f"/issues/{task_id}" not in lis_page.url:
-                        safe_goto(lis_page, target_task_url)
-                    else:
-                        lis_page.reload()
-                    lis_page.wait_for_load_state("domcontentloaded")
-
-                    subtask_count = lis_page.locator("#issue_tree td.subject, table.subtasks td.subject, table.list.issues td.subject").count()
-                    if subtask_count > 0:
-                        print(f"  -> [✓] Đã đối soát trực tiếp trên LIS: Tìm thấy {subtask_count} subtasks đã được import hoàn tất!")
-                        is_completed = True
-                        break
-                except Exception:
-                    pass
-
-            # 5.2: Nếu sau 18 giây phần trăm không đổi và không có thông báo lỗi màu đỏ nào trên Importer
-            if time.time() - last_change_time > 18:
-                danger_alert = importer_page.locator(".alert-danger, .has-error, .text-danger")
-                if danger_alert.count() == 0 or not danger_alert.first.is_visible():
-                    print("  -> [✓] Quá trình xử lý upload dữ liệu backend trên Importer đã hoàn tất!")
-                    is_completed = True
-                    break
 
         time.sleep(0.5)
 

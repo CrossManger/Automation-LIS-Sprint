@@ -39,7 +39,7 @@ def load_milestone_from_file(file_path: str | None = None) -> dict[str, Any]:
         "Environment": ["ENVIRONMENT", "ENV"],
         "Assignee": ["ASSIGNEE"],
         "Project ID Importer": ["PROJECT_ID_IMPORTER", "PROJECT_ID"],
-        "Author Importer": ["AUTHOR_IMPORTER", "AUTHOR"],
+        "Author Importer": ["AUTHOR_IMPORTER", "AUTHOR", "LIS_USERNAME"],
         "Upload File": ["UPLOAD_FILE", "STRUCTURE_FILE"],
         "Upload Work Items File": ["UPLOAD_WORK_ITEMS_FILE", "WORK_ITEMS_FILE"]
     }
@@ -49,6 +49,10 @@ def load_milestone_from_file(file_path: str | None = None) -> dict[str, Any]:
             if val is not None and val != "":
                 result[key] = val
                 break
+
+    # Tự động gán Author Importer bằng LIS_USERNAME nếu chưa có
+    if not result.get("Author Importer"):
+        result["Author Importer"] = os.getenv("LIS_USERNAME") or config.LIS_USERNAME or ""
 
     # Đặt giá trị mặc định cho file nếu chưa có
     if not result.get("Upload File"):
@@ -62,8 +66,7 @@ def load_milestone_from_file(file_path: str | None = None) -> dict[str, Any]:
         "Release Start Date",
         "Release Submission Date",
         "Assignee",
-        "Project ID Importer",
-        "Author Importer"
+        "Project ID Importer"
     ]
     missing = [f for f in required_fields if not result.get(f) or str(result.get(f)).strip() == ""]
     if missing:
