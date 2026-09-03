@@ -13,7 +13,6 @@ pipeline {
         string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (e.g. Trang Pham-Tran-Minh)')
         string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID On LIS (e.g. 786 for Team MAX)')
         
-        
         // Nhận 2 file Excel trực tiếp từ máy tính của người dùng
         base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template')
         base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File')
@@ -43,7 +42,6 @@ pipeline {
                     if (!params.DUE_DATE?.trim()) missingParams.add("DUE_DATE (Release Submission Date)")
                     if (!params.ASSIGNEE?.trim()) missingParams.add("ASSIGNEE (Assignee)")
                     if (!params.PROJECT_ID?.trim()) missingParams.add("PROJECT_ID (Project ID ON LIS)")
-                    if (!params.PROJECT_PATH?.trim()) missingParams.add("PROJECT_PATH (Đường dẫn dự án trên LIS)")
                     
                     if (missingParams.size() > 0) {
                         error("""
@@ -93,10 +91,10 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                 script {
                     echo "=========================================="
                     echo "▶ Tiếp nhận thông tin và khởi chạy tự động hóa..."
-                    echo "User LIS: ${params.LIS_USERNAME}"
-                    echo "Sprint:   ${params.SPRINT_NAME}"
-                    echo "Assignee: ${params.ASSIGNEE}"
-                    echo "Project:  ${params.PROJECT_PATH}"
+                    echo "User LIS:   ${params.LIS_USERNAME}"
+                    echo "Sprint:     ${params.SPRINT_NAME}"
+                    echo "Assignee:   ${params.ASSIGNEE}"
+                    echo "Project ID: ${params.PROJECT_ID}"
                     echo "=========================================="
 
                     withFileParameter('STRUCTURE_FILE') {
@@ -123,7 +121,6 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 export ENVIRONMENT="${ENVIRONMENT}"
                                 export ASSIGNEE="${ASSIGNEE}"
                                 export PROJECT_ID="${PROJECT_ID}"
-                                export PROJECT_PATH="${PROJECT_PATH}"
                                 export AUTHOR="${LIS_USERNAME}"
                                 export STRUCTURE_FILE="structure_template.xlsx"
                                 export WORK_ITEMS_FILE="work_items_detail.xlsx"
