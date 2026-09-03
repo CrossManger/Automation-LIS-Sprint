@@ -4,7 +4,6 @@ pipeline {
     parameters {
         string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username')
         password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password')
-        string(name: 'PROJECT_PATH', defaultValue: '', description: 'LIS Project Path (e.g. Delivery >> Bestarion >> Projects >> MAX)')
         string(name: 'SPRINT_NAME', defaultValue: '', description: 'Sprint Name')
         string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)')
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
