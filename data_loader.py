@@ -39,6 +39,7 @@ def load_milestone_from_file(file_path: str | None = None) -> dict[str, Any]:
         "Environment": ["ENVIRONMENT", "ENV"],
         "Assignee": ["ASSIGNEE"],
         "Project ID Importer": ["PROJECT_ID_IMPORTER", "PROJECT_ID"],
+        "Project Path": ["PROJECT_PATH", "LIS_PROJECT_PATH"],
         "Author Importer": ["AUTHOR_IMPORTER", "AUTHOR", "LIS_USERNAME"],
         "Upload File": ["UPLOAD_FILE", "STRUCTURE_FILE"],
         "Upload Work Items File": ["UPLOAD_WORK_ITEMS_FILE", "WORK_ITEMS_FILE"]
@@ -49,6 +50,10 @@ def load_milestone_from_file(file_path: str | None = None) -> dict[str, Any]:
             if val is not None and val != "":
                 result[key] = val
                 break
+
+    # Đặt giá trị mặc định cho Project Path nếu chưa có
+    if not result.get("Project Path"):
+        result["Project Path"] = "Delivery >> Bestarion >> Projects >> MAX"
 
     # Tự động gán Author Importer bằng LIS_USERNAME nếu chưa có
     if not result.get("Author Importer"):

@@ -700,8 +700,24 @@ def run_automation(data_file_path: str | None = None):
         print(f"[✓] Đã vào trang chủ: {page.title()} ({page.url})")
 
         # ==========================================
-        # Thao tác 1: Nhập "MAX" vào ô "Type to jump to project..."
+        # Thao tác 1: Nhập từ khóa tìm kiếm dự án vào ô "Type to jump to project..."
         # ==========================================
+        raw_project_path = milestone.get("Project Path") or os.getenv("PROJECT_PATH") or "Delivery >> Bestarion >> Projects >> MAX"
+        project_path = raw_project_path.strip()
+
+        # Tự động trích xuất từ khóa tìm kiếm (từ cuối cùng sau ký tự phân cách >>, >, /, \)
+        delimiters = [">>", ">", "/", "\\"]
+        search_keyword = project_path
+        for delim in delimiters:
+            if delim in search_keyword:
+                parts = [p.strip() for p in search_keyword.split(delim) if p.strip()]
+                if parts:
+                    search_keyword = parts[-1]
+                break
+
+        print(f"[*] Cấu hình đường dẫn dự án: '{project_path}'")
+        print(f"[*] Từ khóa tìm kiếm dự án: '{search_keyword}'")
+
         print("[*] Đang tìm ô tìm kiếm dự án 'Type to jump to project...'...")
         project_input = page.get_by_placeholder("Type to jump to project...", exact=False)
         if project_input.count() == 0:
@@ -709,17 +725,32 @@ def run_automation(data_file_path: str | None = None):
 
         project_input.wait_for(state="visible", timeout=10000)
         project_input.click()
-        project_input.fill("MAX")
-        print("[✓] Đã nhập thành công chữ 'MAX' vào ô tìm kiếm dự án.")
+        project_input.fill(search_keyword)
+        print(f"[✓] Đã nhập thành công chữ '{search_keyword}' vào ô tìm kiếm dự án.")
 
         # ==========================================
-        # Thao tác 2: Nhấp vào ô "Delivery >> Bestarion >> Projects >> MAX"
+        # Thao tác 2: Nhấp vào mục dự án phù hợp trong danh sách gợi ý
         # ==========================================
-        print("[*] Đang đợi danh sách gợi ý xuất hiện và tìm 'Delivery >> Bestarion >> Projects >> MAX'...")
-        target_pattern = re.compile(r"Delivery.*Bestarion.*Projects.*MAX", re.IGNORECASE)
+        print(f"[*] Đang đợi danh sách gợi ý xuất hiện và tìm '{project_path}'...")
+        # Tạo regex pattern linh hoạt từ các phân đoạn của đường dẫn (ví dụ: Delivery.*Bestarion.*Projects.*MAX)
+        path_parts = re.split(r"\s*(?:>>|>|/|\\)\s*", project_path)
+        path_parts = [re.escape(p) for p in path_parts if p]
+        if len(path_parts) > 1:
+            pattern_str = ".*".join(path_parts)
+        else:
+            pattern_str = re.escape(project_path)
+        target_pattern = re.compile(pattern_str, re.IGNORECASE)
+
         target_option = page.locator("li, a, div, span, .ui-menu-item").filter(has_text=target_pattern).first
+        try:
+            target_option.wait_for(state="visible", timeout=10000)
+        except Exception:
+            # Fallback: nếu không tìm thấy khớp toàn bộ chuỗi phân cấp, thử tìm theo từ khóa chính
+            print(f"[!] Không tìm thấy khớp toàn bộ đường dẫn, đang thử khớp theo từ khóa '{search_keyword}'...")
+            fallback_pattern = re.compile(rf"\b{re.escape(search_keyword)}\b", re.IGNORECASE)
+            target_option = page.locator("li, a, div, span, .ui-menu-item").filter(has_text=fallback_pattern).first
+            target_option.wait_for(state="visible", timeout=10000)
 
-        target_option.wait_for(state="visible", timeout=10000)
         print(f"[*] Đã tìm thấy mục: '{target_option.inner_text().strip()}'. Đang click...")
         target_option.click()
         page.wait_for_load_state("networkidle")
