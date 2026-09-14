@@ -482,6 +482,79 @@ def fill_task_form(page: Page, item: dict) -> tuple[bool, str | None]:
     return True, created_task_id
 
 
+def find_completed_import_in_table(
+    importer_page: Page,
+    target_filename: str,
+    task_id: str | None = None,
+    initial_item_ids: set | None = None
+) -> dict | None:
+    """
+    Kiểm tra bảng lịch sử import trên Importer (bảng <tbody> với ng-repeat="item in items").
+    Mỗi hàng có cấu trúc:
+      td[0]: Item ID (ví dụ: 1332)
+      td[1]: Link file và tên file (ví dụ: test2.xlsx)
+      td[2]: Trạng thái (ví dụ: Complete)
+      td[3]: Link download log CSV (ví dụ: /log/out_786_490604_minhvh.csv)
+      td[4]: Nút Re-import
+    Trả về thông tin bản ghi nếu trạng thái là Complete hoặc thông báo lỗi nếu Failed.
+    """
+    try:
+        rows = importer_page.locator("tr[ng-repeat*='item in items']")
+        if rows.count() == 0:
+            rows = importer_page.locator("table tbody tr")
+
+        row_count = rows.count()
+        target_name_clean = target_filename.strip().lower()
+
+        for i in range(row_count):
+            row = rows.nth(i)
+            cells = row.locator("td")
+            if cells.count() < 3:
+                continue
+
+            item_id = cells.nth(0).inner_text().strip()
+            # Bỏ qua các bản ghi cũ đã có từ trước lần submit này
+            if initial_item_ids is not None and item_id in initial_item_ids:
+                continue
+
+            file_text = cells.nth(1).inner_text().strip()
+            status_text = cells.nth(2).inner_text().strip()
+
+            log_link = ""
+            if cells.count() >= 4:
+                log_a = cells.nth(3).locator("a")
+                if log_a.count() > 0:
+                    log_link = log_a.first.get_attribute("href") or ""
+
+            # Kiểm tra xem có khớp tên file hoặc khớp Task ID trong link log không
+            file_clean = file_text.lower()
+            file_matched = (target_name_clean in file_clean) or (file_clean in target_name_clean)
+            task_matched = bool(task_id and f"_{task_id}_" in log_link)
+
+            # Nếu tên file hoặc Task ID khớp
+            if file_matched or task_matched:
+                if "complete" in status_text.lower():
+                    return {
+                        "item_id": item_id,
+                        "filename": file_text,
+                        "status": status_text,
+                        "log_link": log_link,
+                        "is_success": True
+                    }
+                elif any(err in status_text.lower() for err in ["fail", "error"]):
+                    return {
+                        "item_id": item_id,
+                        "filename": file_text,
+                        "status": status_text,
+                        "log_link": log_link,
+                        "is_success": False
+                    }
+    except Exception:
+        pass
+
+    return None
+
+
 def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: str, lis_page: Page | None = None) -> bool:
     """
     Điền các thông tin vào form trên trang Importer (https://importer.larion.com/):
@@ -584,9 +657,24 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
     planning_checkbox.set_checked(True)
     print("  -> [✓] Đã tick chọn ô 'I already set Project Status to planing'")
 
-    # 7. Bấm nút Submit và chờ thanh Progress Bar đạt 100%
+    # 7. Bấm nút Submit và chờ thanh Progress Bar hoặc bảng kết quả đạt Complete
     print("  [*] Đang bấm nút 'Submit' trên Importer...")
     submit_btn = importer_page.locator("button.btn-primary, button[type='submit']").filter(has_text="Submit").first
+
+    # Ghi nhận các ID bản ghi hiện có trong bảng Importer trước khi gửi
+    initial_item_ids = set()
+    try:
+        existing_rows = importer_page.locator("tr[ng-repeat*='item in items'], table tbody tr")
+        for idx in range(existing_rows.count()):
+            first_td = existing_rows.nth(idx).locator("td").first
+            if first_td.count() > 0:
+                tid = first_td.inner_text().strip()
+                if tid:
+                    initial_item_ids.add(tid)
+        if initial_item_ids:
+            print(f"  [*] Đã ghi nhận {len(initial_item_ids)} bản ghi cũ trong bảng Importer trước khi gửi.")
+    except Exception:
+        pass
 
     # Đợi nút Submit được mở khóa (enabled)
     try:
@@ -598,15 +686,38 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
         pass
 
     submit_btn.click()
-    print("  [*] Đã bấm Submit. Đang theo dõi tiến trình upload (chờ thanh tiến trình đạt 100%)...")
+    print("  [*] Đã bấm Submit. Đang theo dõi tiến trình upload (chờ thanh tiến trình đạt 100% hoặc bảng xuất hiện trạng thái Complete)...")
 
-    # Theo dõi thanh progress bar theo thời gian thực cho đến khi hoàn tất (tối đa 5 phút)
+    # Theo dõi tiến trình theo thời gian thực cho đến khi hoàn tất (tối đa 5 phút)
     start_time = time.time()
     last_percent = ""
     is_completed = False
     started_uploading = False
+    completed_record = None
 
     while time.time() - start_time < 300:
+        # ƯU TIÊN 1: Kiểm tra bảng kết quả Importer (tbody tr với ng-repeat="item in items")
+        completed_record = find_completed_import_in_table(
+            importer_page,
+            target_filename=upload_file_path.name,
+            task_id=str(task_id) if task_id else None,
+            initial_item_ids=initial_item_ids
+        )
+        if completed_record:
+            if completed_record["is_success"]:
+                print(f"\n  -> [✓] XÁC NHẬN THÀNH CÔNG TỪ BẢNG KẾT QUẢ IMPORTER (Item #{completed_record['item_id']}):")
+                print(f"       * Tên file:   {completed_record['filename']}")
+                print(f"       * Trạng thái: {completed_record['status']}")
+                is_completed = True
+                break
+            else:
+                print(f"\n  -> [X] BẢNG IMPORTER BÁO LỖI (Item #{completed_record['item_id']}): Trạng thái '{completed_record['status']}'")
+                if completed_record.get("log_link"):
+                    full_log_url = f"{config.IMPORTER_URL.rstrip('/')}/{completed_record['log_link'].lstrip('/')}"
+                    print(f"       * File log lỗi: {full_log_url}")
+                return False
+
+        # ƯU TIÊN 2: Theo dõi thanh progress bar
         progress_bar = importer_page.locator(".progress .progress-bar")
         progress_container = importer_page.locator(".progress")
 
@@ -642,8 +753,24 @@ def fill_importer_form(importer_page: Page, item: dict, task_id: str, file_key: 
 
         time.sleep(0.5)
 
+    # Nếu hoàn tất qua progress bar mà bảng chưa kịp in chi tiết, đợi thêm tối đa 3 giây để lấy log link từ bảng
+    if is_completed and not completed_record:
+        for _ in range(6):
+            time.sleep(0.5)
+            completed_record = find_completed_import_in_table(
+                importer_page,
+                target_filename=upload_file_path.name,
+                task_id=str(task_id) if task_id else None,
+                initial_item_ids=initial_item_ids
+            )
+            if completed_record and completed_record["is_success"]:
+                print(f"  -> [✓] Bảng Importer đã cập nhật bản ghi thành công (Item #{completed_record['item_id']}):")
+                print(f"       * Tên file:   {completed_record['filename']}")
+                print(f"       * Trạng thái: {completed_record['status']}")
+                break
+
     if not is_completed:
-        print(f"\n[X] LỖI: Quá trình import file '{file_key}' trên Importer thất bại (không đạt 100% sau thời gian chờ tối đa 5 phút).")
+        print(f"\n[X] LỖI: Quá trình import file '{file_key}' trên Importer thất bại (không đạt 100% hoặc không xuất hiện Complete trong bảng sau 5 phút).")
         return False
 
     print("\n[✓] Quá trình import dữ liệu trên Importer đã hoàn tất!")

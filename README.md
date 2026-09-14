@@ -26,6 +26,7 @@ Automation-LIS/
 * **Bảo mật mật khẩu:** Tham số `LIS_PASSWORD` sử dụng kiểu `password` che ký tự khi nhập trên Jenkins.
 * **Tối giản hóa biểu mẫu:** Tự động sử dụng `LIS_USERNAME` làm Tác giả (Author) trên Importer, không yêu cầu nhập trường Author riêng biệt.
 * **Nhận file trực tiếp từ trình duyệt:** Người dùng chọn file Excel từ máy tính cá nhân qua tham số `base64File`, hệ thống tự động chuẩn hóa định dạng `.xlsx`.
+* **Xác nhận kết quả Import đa tầng:** Kiểm tra đồng thời thanh tiến trình (Progress Bar) và bảng lịch sử Importer (`ng-repeat="item in items"`). Ngay khi file xuất hiện với trạng thái "Complete", hệ thống tự động ghi nhận thành công và trích xuất mã Item ID.
 * **Cơ chế phục hồi cài đặt (Fail-Safe):** Luôn tự động khôi phục cấu hình dự án (`Planned = OFF`, `Public = ON`) khi hoàn tất hoặc ngay cả khi xảy ra lỗi đột ngột.
 
 ---
