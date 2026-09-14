@@ -8,9 +8,11 @@ Dự án tự động hóa toàn diện quy trình tạo **Milestone, Sprint, Pa
 
 ```
 Automation-LIS/
-├── Jenkinsfile                 # Cấu hình Jenkins Declarative Pipeline (Build with Parameters)
-├── main.py                     # Điều phối kịch bản tự động hóa (Pipeline Orchestrator)
-├── lis_service.py              # Xử lý toàn bộ thao tác giao diện trên LIS (Milestone, Sprint, Task, Settings)
+├── Jenkinsfile                 # Pipeline Giai đoạn 1: Milestone, Sprint, Task & Import Work Items
+├── Jenkinsfile_Phase2          # Pipeline Giai đoạn 2: Lọc công việc & Gán Target Milestone, Sprint
+├── main.py                     # Điều phối Giai đoạn 1 (Pipeline Orchestrator Phase 1)
+├── main_phase2.py              # Điều phối Giai đoạn 2 (Pipeline Orchestrator Phase 2)
+├── lis_service.py              # Xử lý toàn bộ thao tác giao diện trên LIS (Milestone, Sprint, Task, Filters, Context Menu)
 ├── importer_service.py         # Xử lý thao tác trên Importer, kiểm tra kết quả, retry và báo cáo
 ├── utils.py                    # Bộ công cụ tiện ích dùng chung (safe_goto, safe_input, check_form_error, ...)
 ├── login.py                    # Module xác thực đăng nhập LIS an toàn (auth.json)
@@ -91,7 +93,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 
-# 3. Thiết lập biến môi trường và chạy
+# 3. Thiết lập biến môi trường và chạy Giai đoạn 1 (Phase 1)
 export LIS_USERNAME="your_username"
 export LIS_PASSWORD="your_password"
 export SPRINT_NAME="2026 Oct 01 Sprint"
@@ -102,4 +104,24 @@ export PROJECT_ID="786"
 export HEADLESS=False
 
 python3 main.py
+
+# 4. Chạy Giai đoạn 2 (Phase 2 - Lọc & Gán Target Milestone, Sprint)
+python3 main_phase2.py
 ```
+
+---
+
+## Hướng Dẫn Thiết Lập Job Giai Đoạn 2 Trên Jenkins
+
+1. Tạo Job mới kiểu **Pipeline** (ví dụ: `Automation-LIS-Sprint-Phase2`).
+2. Tại mục **Pipeline Script from SCM**:
+   - **Script Path**: Điền `Jenkinsfile_Phase2`
+3. Nhấn **Build Now** lần đầu để nạp các tham số:
+   - `LIS_USERNAME`: Tài khoản LIS
+   - `LIS_PASSWORD`: Mật khẩu LIS
+   - `PROJECT_ID`: Mã dự án (mặc định: `786` cho Team MAX)
+   - `SPRINT_NAME`: Tên Sprint (ví dụ: `2026 Oct 01 Sprint`)
+   - `START_DATE`: Ngày bắt đầu (`2026-10-01`)
+   - `DUE_DATE`: Ngày kết thúc (`2026-10-17`)
+4. Nhấn **Build** -> Jenkins sẽ tự động chạy toàn bộ quy trình lọc danh sách công việc, gán Target Milestone và Sprint trên LIS.
+

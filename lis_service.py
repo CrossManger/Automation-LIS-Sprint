@@ -1,4 +1,7 @@
+import os
 import re
+import time
+import json
 from playwright.sync_api import Page
 import config
 from utils import (
@@ -463,3 +466,426 @@ def fill_task_form(page: Page, item: dict) -> tuple[bool, str | None]:
 
     print(f"\n[✓] Đã tạo thành công Task '{task_subject}' (Task ID: #{created_task_id})!")
     return True, created_task_id
+
+
+def fill_date_filter_range(page: Page, field_name: str, date_value: str) -> None:
+    """
+    Điền dải ngày (From / To) cho một bộ lọc cụ thể (start_date hoặc due_date):
+      - Cả From và To đều nhận date_value.
+      - Tích chọn radio button kỳ thứ 2 (#<field_name>_date_period_2).
+    """
+    friendly_label = "Ngày bắt đầu (Start date)" if "start" in field_name.lower() else "Ngày kết thúc (Due date)"
+    print(f"\n[*] Đang thiết lập dải ngày cho '{friendly_label}'...")
+    from_input = page.locator(f"#{field_name}_from")
+    from_input.wait_for(state="visible", timeout=10000)
+    from_input.scroll_into_view_if_needed()
+
+    page.evaluate(f"""() => {{
+        const radio = document.querySelector('#{field_name}_date_period_2');
+        if (radio) {{
+            radio.checked = true;
+            radio.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }}
+        const fromInp = document.querySelector('#{field_name}_from');
+        if (fromInp) {{
+            fromInp.value = '{date_value}';
+            fromInp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }}
+        const toInp = document.querySelector('#{field_name}_to');
+        if (toInp) {{
+            toInp.value = '{date_value}';
+            toInp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }}
+    }}""")
+    time.sleep(0.5)
+
+    radio_locator = page.locator(f"#{field_name}_date_period_2")
+    if radio_locator.count() > 0 and not radio_locator.is_checked():
+        radio_locator.check()
+
+    print(f"  -> [✓] Đã chọn dải ngày cho {friendly_label}: {date_value}")
+
+
+def get_expected_task_count(page: Page) -> int | None:
+    """
+    Trích xuất tổng số lượng tasks kỳ vọng từ tiêu đề danh sách hoặc phân trang trên giao diện LIS.
+    Ưu tiên 1: Đọc từ tiêu đề bảng (ví dụ: 'Task list 83' hoặc 'Task list (83)').
+    Ưu tiên 2: Đọc từ thẻ phân trang (.pagination, ví dụ: '(1-25/83)').
+    """
+    # 1. Quét qua tiêu đề danh sách
+    try:
+        heading_locators = page.locator("h2, .easy-query-heading, #content h2")
+        for i in range(heading_locators.count()):
+            text = heading_locators.nth(i).inner_text().strip()
+            m = re.search(r"Task list\s*\(?(\d+)\)?", text, re.IGNORECASE)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+
+    # 2. Quét qua thẻ phân trang nếu có
+    try:
+        pag_locators = page.locator(".pagination, span.pagination")
+        for i in range(pag_locators.count()):
+            text = pag_locators.nth(i).inner_text().strip()
+            m = re.search(r"/\s*(\d+)", text)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+
+    return None
+
+
+def scroll_and_load_all_tasks(page: Page, max_scroll_attempts: int = 40) -> int:
+    """
+    Cuộn trang liên tục đến khi toàn bộ tasks được nạp qua Infinite scroll.
+    Sử dụng cơ chế CHỜ ĐỘNG (page.wait_for_function) theo sự kiện DOM thay vì sleep cứng,
+    hoàn toàn không bị phụ thuộc vào tốc độ mạng hay thời gian phản hồi của server.
+    """
+    print("\n  [*] Cuộn chuột nạp toàn bộ danh sách tasks (Infinite scroll)...")
+    total_expected = get_expected_task_count(page)
+    if total_expected is not None:
+        print(f"  [*] Tổng số tasks kỳ vọng từ hệ thống: {total_expected}")
+
+    last_count = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+    stable_retries = 0
+
+    for scroll_idx in range(1, max_scroll_attempts + 1):
+        # Nếu đã nạp đủ số lượng kỳ vọng, dừng ngay lập tức
+        if total_expected is not None and last_count >= total_expected:
+            break
+
+        # 1. Kích hoạt cuộn phần tử cuối cùng vào tầm nhìn (trigger Waypoint / Intersection Observer)
+        last_item = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").last
+        if last_item.count() > 0:
+            try:
+                last_item.scroll_into_view_if_needed(timeout=1000)
+            except Exception:
+                pass
+
+        # 2. Cuộn đáy các container
+        page.evaluate("""() => {
+            window.scrollTo(0, document.body.scrollHeight);
+            const containers = document.querySelectorAll('.autoscroll, #content, .table-container, .easy-query-table-container');
+            containers.forEach(c => { c.scrollTop = c.scrollHeight; });
+        }""")
+
+        # 3. Giả lập cuộn chuột thật
+        page.mouse.wheel(0, 2000)
+
+        # 4. CHỜ ĐỘNG: Đợi số lượng hàng trong DOM thực sự tăng lên so với last_count
+        # Cho phép chờ tối đa 8 giây cho MỖI đợt nạp (server phản hồi lúc nào thì tiếp tục ngay lúc đó)
+        try:
+            page.wait_for_function(
+                f"() => document.querySelectorAll('table.issues tbody tr.issue, table.list.issues tbody tr').length > {last_count}",
+                timeout=8000
+            )
+            current_count = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+            print(f"  -> Đã nạp được {current_count}/{total_expected or '?'} tasks...")
+            last_count = current_count
+            stable_retries = 0
+        except Exception:
+            # Nếu sau 8 giây mà số lượng chưa tăng
+            current_count = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+            if current_count > last_count:
+                last_count = current_count
+                stable_retries = 0
+            else:
+                stable_retries += 1
+                # Nếu đã biết mục tiêu mà chưa đạt, kiên nhẫn thử lại tối đa 3 lần (3 x 8s = 24 giây)
+                max_retries = 3 if (total_expected and last_count < total_expected) else 2
+                if stable_retries >= max_retries:
+                    print(f"  [!] Đã thử kích hoạt cuộn {stable_retries} lần liên tiếp nhưng không có thêm task mới.")
+                    break
+                print(f"  [*] Đang chờ server nạp thêm đợt tasks mới (thử lại lần {stable_retries}/{max_retries})...")
+
+    total_tasks = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+    print(f"  [✓] Tổng số tasks đã nạp vào bảng: {total_tasks}/{total_expected or total_tasks}")
+    return total_tasks
+
+
+def select_all_tasks_context_menu(page: Page) -> int:
+    """
+    Chọn tất cả các tasks trong bảng và đánh dấu class context-menu-selection
+    để Easy Redmine Context Menu nhận diện đúng toàn bộ tasks được chọn.
+    """
+    print("  [*] Chọn tất cả tasks trên bảng...")
+    page.evaluate("""() => {
+        window.scrollTo(0, 0);
+        const checkAllBtn = document.querySelector('th.checkbox a, th a.icon-checked, th a[onclick*="toggleIssuesSelection"]');
+        if (checkAllBtn && typeof window.toggleIssuesSelection === 'function') {
+            window.toggleIssuesSelection(checkAllBtn);
+        }
+        window.jQuery('table.issues tbody tr.hascontextmenu, table.issues tbody tr.issue').each(function() {
+            window.jQuery(this).addClass('context-menu-selection');
+            window.jQuery(this).find('input[type=checkbox]').prop('checked', true);
+        });
+    }""")
+    time.sleep(0.5)
+    checked_count = page.locator("table.issues tbody tr input[type='checkbox']:checked, tr.issue input[type='checkbox']:checked").count()
+    print(f"  [✓] Đã chọn {checked_count} tasks.")
+    return checked_count
+
+
+def open_context_menu_safe(page: Page) -> None:
+    """
+    Mở Context Menu an toàn:
+      - Ẩn context menu cũ (nếu có).
+      - Right-click vào ô checkbox của task đầu tiên có cờ selection.
+      - Chờ request AJAX /issues/context_menu hoàn thành và #context-menu hiển thị.
+    """
+    print("  [*] Mở Context Menu (chuột phải)...")
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+        if (typeof window.contextMenuHide === 'function') window.contextMenuHide();
+        window.jQuery('#context-menu').hide().html('');
+    }""")
+    time.sleep(0.5)
+
+    target_cell = page.locator("table.issues tbody tr.context-menu-selection td.checkbox, table.issues tbody tr.issue td.checkbox").first
+    target_cell.scroll_into_view_if_needed()
+
+    with page.expect_response(lambda r: "context_menu" in r.url, timeout=15000):
+        try:
+            target_cell.click(button='right', force=True, timeout=3000)
+        except Exception:
+            page.evaluate("""() => {
+                const cell = document.querySelector('table.issues tbody tr.context-menu-selection td.checkbox') ||
+                             document.querySelector('table.issues tbody tr.issue td.checkbox');
+                if (cell) {
+                    cell.dispatchEvent(new MouseEvent('contextmenu', {
+                        bubbles: true, cancelable: true, view: window, button: 2, clientX: 250, clientY: 250
+                    }));
+                }
+            }""")
+
+    page.wait_for_selector('#context-menu', state='visible', timeout=8000)
+    print("  [✓] Context Menu đã mở và nạp dữ liệu xong.")
+
+
+def update_context_menu_autocomplete(
+    page: Page,
+    input_id: str,
+    field_label: str,
+    keyword: str,
+    task_count: int | None = None
+) -> bool:
+    """
+    Tìm kiếm và gán giá trị autocomplete trong Context Menu,
+    sau đó sử dụng cơ chế BẮT SỰ KIỆN NGUYÊN BẢN (Pure Event-Driven):
+      1. Bắt sự kiện mạng (expect_response): Chờ chính xác HTTP response từ /issues/bulk_update (timeout=0).
+         Không giới hạn thời gian (không timeout), kiên nhẫn chờ máy chủ xử lý xong 100% dù dữ liệu nặng đến đâu.
+      2. Bắt sự kiện trình duyệt (wait_for_event('framenavigated')): Bắt chính xác thời điểm trang được reload.
+      3. Đợi trang mới ổn định hoàn toàn (domcontentloaded + networkidle + table rendered).
+    Tuyệt đối không dùng công thức tính giây hay sleep phỏng đoán.
+    """
+    print(f"\n[*] Đang thiết lập {field_label}: '{keyword}'...")
+    page.wait_for_selector(f"#{input_id}", state="attached", timeout=8000)
+
+    print("  [*] Đang gửi yêu cầu và chờ hệ thống LIS lưu dữ liệu...")
+
+    # BẮT SỰ KIỆN: Lắng nghe HTTP response của /issues/bulk_update từ máy chủ (timeout=0: chờ tới khi hoàn tất)
+    with page.expect_response(lambda res: "bulk_update" in res.url, timeout=0) as response_info:
+        select_res = page.evaluate(f"""() => {{
+            const inp = document.getElementById('{input_id}');
+            if (!inp) return {{ error: 'Input not found: {input_id}' }};
+            const jEl = window.jQuery(inp);
+            const auto = jEl.data('ui-autocomplete') || jEl.data('autocomplete');
+            if (!auto) return {{ error: 'No autocomplete instance found on {input_id}' }};
+            const source = auto.options.source;
+            const matched = source.find(x => x.label && x.label.toLowerCase().includes('{keyword.lower()}'));
+            if (!matched) return {{ error: 'Not found in source: {keyword}', total: source.length }};
+            
+            matched.value = matched.label;
+            const ret = auto.options.select.call(inp, {{ type: 'autocompleteselect' }}, {{ item: matched }});
+            return {{ success: true, matched: matched, ret: ret }};
+        }}""")
+
+        if "error" in select_res:
+            raise RuntimeError(select_res["error"])
+
+    bulk_res = response_info.value
+    if bulk_res.status >= 400:
+        raise RuntimeError(f"Máy chủ trả về mã lỗi HTTP {bulk_res.status} khi cập nhật {field_label}")
+
+    print(f"  [✓] Hệ thống đã lưu thành công {field_label}.")
+
+    # Chờ trang nạp lại sau khi lưu
+    print("  [*] Đang tải lại danh sách công việc sau khi cập nhật...")
+    try:
+        page.wait_for_event("framenavigated", lambda f: f == page.main_frame, timeout=60000)
+    except Exception:
+        pass
+
+    # Đợi trang mới ổn định hoàn toàn
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=60000)
+        page.wait_for_load_state("networkidle", timeout=60000)
+    except Exception:
+        pass
+
+    # Đợi biểu tượng Loading của trang mới tắt hẳn
+    try:
+        page.wait_for_function(
+            """() => {
+                const el = document.getElementById('ajax-indicator');
+                if (!el) return true;
+                const style = window.getComputedStyle(el);
+                return el.style.display === 'none' || style.display === 'none';
+            }""",
+            timeout=30000
+        )
+    except Exception:
+        pass
+
+    # Đợi bảng danh sách công việc hiển thị đầy đủ các dòng
+    try:
+        page.wait_for_selector("table.issues tbody tr, table.list.issues tbody tr", state="visible", timeout=30000)
+    except Exception:
+        pass
+
+    print(f"  [✓] Hoàn tất cập nhật {field_label}: '{keyword}'!")
+    return True
+
+
+
+def filter_and_assign_sprint_milestone(
+    page: Page,
+    proj_id: str,
+    sprint_name: str,
+    start_date: str,
+    due_date: str,
+    proj_name_keyword: str = "MAX",
+    exclude_proj_name: str | None = "EGG"
+) -> bool:
+    """
+    Điều phối trọn vẹn quy trình Giai đoạn 2 (Phase 2):
+      1. Điều hướng đến trang Tasks (/issues?id={proj_id}&set_filter=0).
+      2. Mở vùng bộ lọc Filters.
+      3. Thêm bộ lọc 'Start date' và 'Due date'.
+      4. Điền dải ngày cho Start date và Due date.
+      5. Xóa tag dự án loại trừ / không khớp.
+      6. Tìm kiếm và chọn dự án mục tiêu (proj_name_keyword).
+      7. Áp dụng bộ lọc (Apply settings).
+      8. Cuộn nạp tất cả tasks và chọn tất cả.
+      9. Mở Context Menu và gán Target Milestone.
+      10. Cuộn lại và chọn tất cả tasks lần 2.
+      11. Mở Context Menu và gán Sprint.
+    """
+    print("=" * 65)
+    print("🚀 BẮT ĐẦU THỰC THI GIAI ĐOẠN 2 (PHASE 2 - SPRINT & MILESTONE)")
+    print("=" * 65)
+
+    tasks_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues?id={proj_id}&set_filter=0"
+    print(f"\n[*] [Bước 1] Mở trang danh sách tasks: {tasks_url}...")
+    safe_goto(page, tasks_url)
+    page.wait_for_load_state("networkidle")
+
+    # Mở Filters
+    print("\n[*] [Bước 2] Mở Filters...")
+    add_filter_select = page.locator("#add_filter_select")
+    if not (add_filter_select.count() > 0 and add_filter_select.first.is_visible()):
+        filters_btn = page.locator(
+            "#easy-query-toggle-button-filters a, "
+            "#easy-query-toggle-button-filters, "
+            "div.filters a:has-text('Filters')"
+        ).first
+        if filters_btn.count() > 0:
+            try:
+                filters_btn.click()
+            except Exception:
+                filters_btn.click(force=True)
+        time.sleep(1)
+
+    # Thêm bộ lọc Start date và Due date
+    print("\n[*] [Bước 3 & 4] Thêm bộ lọc 'Start date' và 'Due date'...")
+    add_filter_select = page.locator("#add_filter_select")
+    try:
+        add_filter_select.select_option(value="start_date")
+    except Exception:
+        pass
+    time.sleep(0.5)
+    try:
+        add_filter_select.select_option(value="due_date")
+    except Exception:
+        pass
+    time.sleep(0.5)
+
+    # Điền dải ngày
+    print(f"\n[*] [Bước 5 & 6] Điền ngày: Start={start_date}, Due={due_date}...")
+    fill_date_filter_range(page, "start_date", start_date)
+    fill_date_filter_range(page, "due_date", due_date)
+
+    # Xóa các tag dự án mặc định không khớp khỏi bộ lọc
+    print(f"\n[*] [Bước 7] Dọn dẹp các thẻ dự án khác khỏi bộ lọc...")
+    page.evaluate(f"""() => {{
+        const delBtns = document.querySelectorAll("#values_project_id_entity_array .icon-del");
+        delBtns.forEach(btn => {{
+            const tagText = btn.parentElement ? btn.parentElement.innerText.trim() : '';
+            if (!tagText.includes('{proj_name_keyword}')) {{
+                btn.click();
+            }}
+        }});
+    }}""")
+    time.sleep(1)
+
+    # Chọn dự án mục tiêu (nếu chưa có trong entity array)
+    already_selected = page.evaluate(f"""() => {{
+        const container = document.getElementById("values_project_id_entity_array");
+        return container ? container.innerText.includes('{proj_name_keyword}') : false;
+    }}""")
+
+    if not already_selected:
+        print(f"\n[*] [Bước 8] Chọn dự án '{proj_name_keyword}' trong bộ lọc...")
+        proj_input = page.locator("#values_project_id_autocomplete")
+        proj_input.wait_for(state="visible", timeout=5000)
+        proj_input.fill(f"------ {proj_name_keyword}")
+        time.sleep(1)
+
+        matched_item = page.locator(f"ul.ui-autocomplete:visible li:has-text('{proj_name_keyword}')").first
+        if matched_item.count() > 0:
+            matched_item.click()
+            time.sleep(0.5)
+
+    # Áp dụng bộ lọc
+    print("\n[*] [Bước 9] Nhấp 'Apply settings'...")
+    apply_btn = page.locator("a.apply-link.button-positive, a[onclick*='applyEasyQueryFilters']").first
+    apply_btn.click()
+    page.wait_for_load_state("networkidle")
+    time.sleep(2)
+    print("  -> [✓] Đã áp dụng bộ lọc thành công!")
+
+    # Bước 10: Target Milestone
+    print("\n" + "=" * 65)
+    print("🎯 BƯỚC 10: THIẾT LẬP TARGET MILESTONE")
+    print("=" * 65)
+    total_loaded_1 = scroll_and_load_all_tasks(page)
+    select_all_tasks_context_menu(page)
+    open_context_menu_safe(page)
+    update_context_menu_autocomplete(
+        page,
+        input_id="fixed_version_for_context_menu_issue_autocomplete",
+        field_label="Target Milestone",
+        keyword=sprint_name,
+        task_count=total_loaded_1
+    )
+
+    # Bước 11: Sprint
+    print("\n" + "=" * 65)
+    print("🏃 BƯỚC 11: THIẾT LẬP SPRINT")
+    print("=" * 65)
+    total_loaded_2 = scroll_and_load_all_tasks(page)
+    select_all_tasks_context_menu(page)
+    open_context_menu_safe(page)
+    update_context_menu_autocomplete(
+        page,
+        input_id="easy_sprint_id_for_context_menu_issue_autocomplete",
+        field_label="Sprint",
+        keyword=sprint_name,
+        task_count=total_loaded_2
+    )
+
+    print("\n🎉 HOÀN THÀNH TOÀN BỘ GIAI ĐOẠN 2 THÀNH CÔNG!")
+    return True
+
