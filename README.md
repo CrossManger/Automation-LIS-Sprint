@@ -9,10 +9,13 @@ Dự án tự động hóa toàn diện quy trình tạo **Milestone, Sprint, Pa
 ```
 Automation-LIS/
 ├── Jenkinsfile                 # Cấu hình Jenkins Declarative Pipeline (Build with Parameters)
-├── main.py                     # Kịch bản lõi Playwright tự động hóa (Chạy ngầm Headless)
-├── login.py                    # Module xác thực đăng nhập LIS an toàn
+├── main.py                     # Điều phối kịch bản tự động hóa (Pipeline Orchestrator)
+├── lis_service.py              # Xử lý toàn bộ thao tác giao diện trên LIS (Milestone, Sprint, Task, Settings)
+├── importer_service.py         # Xử lý thao tác trên Importer, kiểm tra kết quả, retry và báo cáo
+├── utils.py                    # Bộ công cụ tiện ích dùng chung (safe_goto, safe_input, check_form_error, ...)
+├── login.py                    # Module xác thực đăng nhập LIS an toàn (auth.json)
 ├── config.py                   # Quản lý cấu hình tập trung & nhận diện môi trường CI
-├── data_loader.py              # Nạp dữ liệu & hỗ trợ ghi đè biến môi trường
+├── data_loader.py              # Nạp dữ liệu từ file/biến môi trường Jenkins & kiểm tra tính hợp lệ
 ├── requirements.txt            # Danh sách thư viện Python cần thiết
 ├── .gitignore                  # Bỏ qua file nhạy cảm & virtualenv
 └── README.md                   # Hướng dẫn chi tiết
