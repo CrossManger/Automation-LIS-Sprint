@@ -609,17 +609,20 @@ def select_all_tasks_context_menu(page: Page) -> int:
     """
     Chọn tất cả các tasks trong bảng và đánh dấu class context-menu-selection
     để Easy Redmine Context Menu nhận diện đúng toàn bộ tasks được chọn.
+    Sử dụng hoàn toàn DOM API thuần túy, không phụ thuộc vào window.jQuery.
     """
     print("  [*] Chọn tất cả tasks trên bảng...")
     page.evaluate("""() => {
         window.scrollTo(0, 0);
         const checkAllBtn = document.querySelector('th.checkbox a, th a.icon-checked, th a[onclick*="toggleIssuesSelection"]');
         if (checkAllBtn && typeof window.toggleIssuesSelection === 'function') {
-            window.toggleIssuesSelection(checkAllBtn);
+            try { window.toggleIssuesSelection(checkAllBtn); } catch(e) {}
         }
-        window.jQuery('table.issues tbody tr.hascontextmenu, table.issues tbody tr.issue').each(function() {
-            window.jQuery(this).addClass('context-menu-selection');
-            window.jQuery(this).find('input[type=checkbox]').prop('checked', true);
+        const rows = document.querySelectorAll('table.issues tbody tr.hascontextmenu, table.issues tbody tr.issue');
+        rows.forEach(tr => {
+            tr.classList.add('context-menu-selection');
+            const cb = tr.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = true;
         });
     }""")
     time.sleep(0.5)
@@ -673,78 +676,101 @@ def update_context_menu_autocomplete(
 ) -> bool:
     """
     Tìm kiếm và gán giá trị autocomplete trong Context Menu,
-    sau đó sử dụng cơ chế BẮT SỰ KIỆN NGUYÊN BẢN (Pure Event-Driven):
-      1. Bắt sự kiện mạng (expect_response): Chờ chính xác HTTP response từ /issues/bulk_update (timeout=0).
-         Không giới hạn thời gian (không timeout), kiên nhẫn chờ máy chủ xử lý xong 100% dù dữ liệu nặng đến đâu.
-      2. Bắt sự kiện trình duyệt (wait_for_event('framenavigated')): Bắt chính xác thời điểm trang được reload.
-      3. Đợi trang mới ổn định hoàn toàn (domcontentloaded + networkidle + table rendered).
-    Tuyệt đối không dùng công thức tính giây hay sleep phỏng đoán.
+    sau đó tự động theo dõi chu trình lưu dữ liệu và nạp lại trang:
+      - Đặt marker theo dõi reload trên window cũ.
+      - Kích hoạt select qua autocompleteselect.
+      - Theo dõi máy chủ lưu ngầm và bắt trọn thời điểm trang được reload xong.
+      - Đảm bảo bảng danh sách công việc hiển thị đầy đủ trước khi chuyển bước tiếp theo.
     """
     print(f"\n[*] Đang thiết lập {field_label}: '{keyword}'...")
     page.wait_for_selector(f"#{input_id}", state="attached", timeout=8000)
 
+    # Đặt marker trên window cũ để nhận diện thời điểm trang reload
+    page.evaluate("() => { window.__phase2_waiting_reload__ = true; }")
+
+    # Kích hoạt lựa chọn mục tương ứng trong Context Menu
+    select_res = page.evaluate(f"""() => {{
+        const inp = document.getElementById('{input_id}');
+        if (!inp) return {{ error: 'Input not found: {input_id}' }};
+        const jEl = window.jQuery(inp);
+        const auto = jEl.data('ui-autocomplete') || jEl.data('autocomplete');
+        if (!auto) return {{ error: 'No autocomplete instance found on {input_id}' }};
+        const source = auto.options.source;
+        const matched = source.find(x => x.label && x.label.toLowerCase().includes('{keyword.lower()}'));
+        if (!matched) return {{ error: 'Not found in source: {keyword}', total: source.length }};
+        
+        matched.value = matched.label;
+        const ret = auto.options.select.call(inp, {{ type: 'autocompleteselect' }}, {{ item: matched }});
+        return {{ success: true, matched: matched, ret: ret }};
+    }}""")
+
+    if "error" in select_res:
+        raise RuntimeError(select_res["error"])
+
     print("  [*] Đang gửi yêu cầu và chờ hệ thống LIS lưu dữ liệu...")
 
-    # BẮT SỰ KIỆN: Lắng nghe HTTP response của /issues/bulk_update từ máy chủ (timeout=0: chờ tới khi hoàn tất)
-    with page.expect_response(lambda res: "bulk_update" in res.url, timeout=0) as response_info:
-        select_res = page.evaluate(f"""() => {{
-            const inp = document.getElementById('{input_id}');
-            if (!inp) return {{ error: 'Input not found: {input_id}' }};
-            const jEl = window.jQuery(inp);
-            const auto = jEl.data('ui-autocomplete') || jEl.data('autocomplete');
-            if (!auto) return {{ error: 'No autocomplete instance found on {input_id}' }};
-            const source = auto.options.source;
-            const matched = source.find(x => x.label && x.label.toLowerCase().includes('{keyword.lower()}'));
-            if (!matched) return {{ error: 'Not found in source: {keyword}', total: source.length }};
-            
-            matched.value = matched.label;
-            const ret = auto.options.select.call(inp, {{ type: 'autocompleteselect' }}, {{ item: matched }});
-            return {{ success: true, matched: matched, ret: ret }};
-        }}""")
+    t0 = time.time()
+    reload_started = False
 
-        if "error" in select_res:
-            raise RuntimeError(select_res["error"])
+    # Chờ động không giới hạn cho đến khi trang reload và hiển thị bảng mới
+    while True:
+        time.sleep(1)
+        elapsed = int(time.time() - t0)
 
-    bulk_res = response_info.value
-    if bulk_res.status >= 400:
-        raise RuntimeError(f"Máy chủ trả về mã lỗi HTTP {bulk_res.status} khi cập nhật {field_label}")
+        # 1. Kiểm tra xem trang cũ đã bắt đầu reload hay chưa
+        try:
+            has_reloaded = page.evaluate("() => window.__phase2_waiting_reload__ === undefined")
+            if has_reloaded:
+                reload_started = True
+        except Exception:
+            # Context JavaScript bị ngắt trong lúc trang đang unload/reload
+            reload_started = True
 
-    print(f"  [✓] Hệ thống đã lưu thành công {field_label}.")
+        # 2. Nếu đã reload sang trang mới:
+        if reload_started:
+            try:
+                is_ajax_busy = page.evaluate("""() => {
+                    const el = document.getElementById('ajax-indicator');
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    return el.style.display !== 'none' && style.display !== 'none';
+                }""")
+            except Exception:
+                is_ajax_busy = True
 
-    # Chờ trang nạp lại sau khi lưu
-    print("  [*] Đang tải lại danh sách công việc sau khi cập nhật...")
+            if not is_ajax_busy:
+                try:
+                    rows = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+                    if rows > 0:
+                        print(f"  [✓] Hệ thống đã lưu thành công {field_label} và nạp lại {rows} tasks sau {elapsed}s!")
+                        break
+                except Exception:
+                    pass
+
+        # 3. Fallback: Nếu sau 15s mà context menu đã biến mất và indicator đã ẩn
+        if elapsed >= 15 and not reload_started:
+            try:
+                menu_visible = page.locator("#context-menu").is_visible()
+                if not menu_visible:
+                    reload_started = True
+            except Exception:
+                reload_started = True
+
+        # In log tiến độ mỗi 10 giây để người dùng theo dõi
+        if elapsed > 0 and elapsed % 10 == 0:
+            if not reload_started:
+                print(f"  [*] Đang chờ máy chủ LIS lưu {field_label} vào cơ sở dữ liệu ({elapsed}s)...")
+            else:
+                print(f"  [*] Đang hoàn tất nạp lại danh sách công việc ({elapsed}s)...")
+
+    # Đợi ổn định hoàn toàn cả DOM và Network
     try:
-        page.wait_for_event("framenavigated", lambda f: f == page.main_frame, timeout=60000)
+        page.wait_for_load_state("domcontentloaded", timeout=30000)
+        page.wait_for_load_state("networkidle", timeout=30000)
     except Exception:
         pass
 
-    # Đợi trang mới ổn định hoàn toàn
-    try:
-        page.wait_for_load_state("domcontentloaded", timeout=60000)
-        page.wait_for_load_state("networkidle", timeout=60000)
-    except Exception:
-        pass
-
-    # Đợi biểu tượng Loading của trang mới tắt hẳn
-    try:
-        page.wait_for_function(
-            """() => {
-                const el = document.getElementById('ajax-indicator');
-                if (!el) return true;
-                const style = window.getComputedStyle(el);
-                return el.style.display === 'none' || style.display === 'none';
-            }""",
-            timeout=30000
-        )
-    except Exception:
-        pass
-
-    # Đợi bảng danh sách công việc hiển thị đầy đủ các dòng
-    try:
-        page.wait_for_selector("table.issues tbody tr, table.list.issues tbody tr", state="visible", timeout=30000)
-    except Exception:
-        pass
-
+    time.sleep(1)
     print(f"  [✓] Hoàn tất cập nhật {field_label}: '{keyword}'!")
     return True
 
@@ -838,15 +864,29 @@ def filter_and_assign_sprint_milestone(
 
     if not already_selected:
         print(f"\n[*] [Bước 8] Chọn dự án '{proj_name_keyword}' trong bộ lọc...")
-        proj_input = page.locator("#values_project_id_autocomplete")
-        proj_input.wait_for(state="visible", timeout=5000)
-        proj_input.fill(f"------ {proj_name_keyword}")
-        time.sleep(1)
+        # 1. Thử add trực tiếp qua entityArray nếu có
+        added_via_js = page.evaluate(f"""() => {{
+            try {{
+                const el = (window.jQuery || window.$)('#values_project_id_entity_array');
+                if (el && typeof el.entityArray === 'function') {{
+                    el.entityArray("add", {{ id: '{proj_id}', name: '------ {proj_name_keyword}' }});
+                    return true;
+                }}
+            }} catch(e) {{}}
+            return false;
+        }}""")
 
-        matched_item = page.locator(f"ul.ui-autocomplete:visible li:has-text('{proj_name_keyword}')").first
-        if matched_item.count() > 0:
-            matched_item.click()
-            time.sleep(0.5)
+        if not added_via_js:
+            proj_input = page.locator("#values_project_id_autocomplete")
+            proj_input.wait_for(state="visible", timeout=5000)
+            proj_input.click()
+            proj_input.fill(f"------ {proj_name_keyword}")
+            time.sleep(1)
+
+            matched_item = page.locator(f"ul.ui-autocomplete:visible li:has-text('{proj_name_keyword}')").first
+            if matched_item.count() > 0:
+                matched_item.click()
+                time.sleep(0.5)
 
     # Áp dụng bộ lọc
     print("\n[*] [Bước 9] Nhấp 'Apply settings'...")
@@ -861,6 +901,14 @@ def filter_and_assign_sprint_milestone(
     print("🎯 BƯỚC 10: THIẾT LẬP TARGET MILESTONE")
     print("=" * 65)
     total_loaded_1 = scroll_and_load_all_tasks(page)
+    if total_loaded_1 == 0:
+        print("\n[!] CẢNH BÁO: Bảng không có công việc nào (0/0 tasks) thỏa mãn bộ lọc:")
+        print(f"    - Ngày bắt đầu (Start Date): {start_date}")
+        print(f"    - Ngày kết thúc (Due Date):  {due_date}")
+        print(f"    - Dự án: {proj_name_keyword} (#{proj_id})")
+        print("    Vui lòng kiểm tra lại tham số ngày/dự án trên Jenkins hoặc danh sách tasks trên LIS!")
+        return False
+
     select_all_tasks_context_menu(page)
     open_context_menu_safe(page)
     update_context_menu_autocomplete(
@@ -876,6 +924,10 @@ def filter_and_assign_sprint_milestone(
     print("🏃 BƯỚC 11: THIẾT LẬP SPRINT")
     print("=" * 65)
     total_loaded_2 = scroll_and_load_all_tasks(page)
+    if total_loaded_2 == 0:
+        print("\n[!] CẢNH BÁO: Bảng không có công việc nào (0 tasks) để gán Sprint.")
+        return False
+
     select_all_tasks_context_menu(page)
     open_context_menu_safe(page)
     update_context_menu_autocomplete(
