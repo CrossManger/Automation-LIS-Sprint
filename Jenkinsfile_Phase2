@@ -5,9 +5,9 @@ pipeline {
         string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username')
         password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password')
         string(name: 'PROJECT_ID', defaultValue: '786', description: 'Project ID On LIS (e.g. 786 for Team MAX)')
-        string(name: 'SPRINT_NAME', defaultValue: '', description: 'Sprint Name (e.g. 2026 Oct 01 Sprint)')
-        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD, e.g. 2026-10-01)')
-        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD, e.g. 2026-10-17)')
+        string(name: 'SPRINT_NAME', defaultValue: '', description: 'Sprint Name')
+        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)')
+        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
     }
 
     environment {
