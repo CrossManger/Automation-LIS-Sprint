@@ -14,6 +14,7 @@ from utils import (
     get_sprint_name,
 )
 from lis_service import (
+    verify_project_access,
     set_project_settings,
     fill_milestone_form,
     fill_sprint_form,
@@ -36,6 +37,7 @@ __all__ = [
     "check_form_error",
     "select_option_with_fallback",
     "get_sprint_name",
+    "verify_project_access",
     "set_project_settings",
     "fill_milestone_form",
     "fill_sprint_form",
@@ -112,8 +114,22 @@ def run_automation(data_file_path: str | None = None):
         proj_id = str(milestone.get("Project ID Importer") or os.getenv("PROJECT_ID") or "786").strip()
         project_url = f"{config.LIS_HOME_URL.rstrip('/')}/projects/{proj_id}"
         print(f"[*] Đang điều hướng trực tiếp đến trang dự án (Project ID: {proj_id}): {project_url}")
-        safe_goto(page, project_url)
+        res = safe_goto(page, project_url)
         page.wait_for_load_state("networkidle")
+
+        # Kiểm tra tính hợp lệ của trang dự án (phát hiện sớm khi nhập sai Project ID -> 403 / 404)
+        is_accessible, access_error = verify_project_access(page, proj_id, response=res)
+        if not is_accessible:
+            print(f"\n[X] LỖI TRUY CẬP DỰ ÁN: {access_error}")
+            print(f"    - Tiêu đề trang: {page.title()}")
+            print(f"    - URL hiện tại:  {page.url}")
+            print(f"\n  👉 NGUYÊN NHÂN & CÁCH KHẮC PHỤC:")
+            print(f"     1. Bạn đang cấu hình Project ID: '{proj_id}'. Vui lòng kiểm tra lại xem có nhập nhầm mã dự án không (ví dụ: Team MAX là 786).")
+            print(f"     2. Dự án #{proj_id} có thể không tồn tại hoặc đã bị đóng/lưu trữ (Archived) trên LIS.")
+            print(f"     3. Tài khoản '{milestone.get('Author Importer') or config.LIS_USERNAME}' chưa được thêm quyền thành viên trong dự án này.")
+            browser.close()
+            sys.exit(1)
+
         print(f"[✓] Đã vào trang dự án: {page.title()} ({page.url})")
 
         # Ghi nhớ đường dẫn Settings của dự án để dùng xuyên suốt
@@ -126,12 +142,21 @@ def run_automation(data_file_path: str | None = None):
         print("[*] Đang vào mục 'Roadmap'...")
         roadmap_link = page.locator("a, button, li").filter(has_text=re.compile(r"^Roadmap$", re.IGNORECASE)).first
         if roadmap_link.count() == 0:
-            roadmap_link = page.locator("a:has-text('Roadmap'), .roadmap, a[href*='roadmap']")
+            roadmap_link = page.locator("a:has-text('Roadmap'), .roadmap, a[href*='roadmap']").first
 
-        roadmap_link.wait_for(state="visible", timeout=10000)
-        roadmap_link.click()
-        page.wait_for_load_state("networkidle")
-        print(f"[✓] Đã vào trang Roadmap: {page.title()}")
+        try:
+            roadmap_link.wait_for(state="visible", timeout=10000)
+            roadmap_link.click()
+            page.wait_for_load_state("networkidle")
+            print(f"[✓] Đã vào trang Roadmap: {page.title()}")
+        except Exception:
+            print(f"\n[X] LỖI: Không tìm thấy hoặc không thể mở mục 'Roadmap' trong dự án #{proj_id}.")
+            print(f"    - Tiêu đề trang hiện tại: {page.title()} ({page.url})")
+            print(f"  👉 Nguyên nhân có thể do:")
+            print(f"     1. Dự án #{proj_id} chưa bật module 'Roadmap' trong mục Settings -> Modules.")
+            print(f"     2. Tài khoản không có quyền xem Roadmap trong dự án này.")
+            browser.close()
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 4: Bấm 'New milestone'
@@ -139,11 +164,17 @@ def run_automation(data_file_path: str | None = None):
         print("[*] Đang nhấp vào 'New milestone'...")
         new_milestone_btn = page.locator("a, button").filter(has_text=re.compile(r"New\s+milestone", re.IGNORECASE)).first
         if new_milestone_btn.count() == 0:
-            new_milestone_btn = page.locator("a[href*='versions/new'], a[href*='milestone']")
+            new_milestone_btn = page.locator("a[href*='versions/new'], a[href*='milestone']").first
 
-        new_milestone_btn.wait_for(state="visible", timeout=10000)
-        new_milestone_btn.click()
-        page.wait_for_load_state("networkidle")
+        try:
+            new_milestone_btn.wait_for(state="visible", timeout=10000)
+            new_milestone_btn.click()
+            page.wait_for_load_state("networkidle")
+        except Exception:
+            print(f"\n[X] LỖI: Không tìm thấy nút 'New milestone' trên trang Roadmap (Dự án #{proj_id}).")
+            print(f"  👉 Nguyên nhân: Tài khoản có thể không có quyền quản lý/tạo Milestone (Versions) trên dự án này.")
+            browser.close()
+            sys.exit(1)
 
         # ==========================================
         # Thao tác 5: Điền form tạo milestone

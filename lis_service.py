@@ -10,6 +10,57 @@ from utils import (
 )
 
 
+def verify_project_access(page: Page, proj_id: str, response=None) -> tuple[bool, str | None]:
+    """
+    Kiểm tra xem trang dự án LIS có truy cập hợp lệ hay bị lỗi (403 Forbidden, 404 Not Found, v.v.).
+    Giúp phát hiện sớm lỗi nhập sai Project ID thay vì chờ đợi timeout ở các thao tác sau.
+    Trả về: (is_accessible, error_message)
+    """
+    # 1. Kiểm tra HTTP Status Code nếu response khả dụng
+    if response is not None:
+        try:
+            status = response.status
+            if status == 403:
+                return False, f"Lỗi HTTP 403 (Forbidden): Tài khoản không có quyền truy cập hoặc Project ID '{proj_id}' không hợp lệ."
+            elif status == 404:
+                return False, f"Lỗi HTTP 404 (Not Found): Dự án với Project ID '{proj_id}' không tồn tại trên hệ thống LIS."
+            elif status >= 400:
+                return False, f"Lỗi máy chủ HTTP {status} khi truy cập dự án #{proj_id}."
+        except Exception:
+            pass
+
+    # 2. Kiểm tra Title của trang (Redmine thường đặt title là '403 - LIS' hoặc '404 - LIS')
+    title = page.title().strip()
+    title_lower = title.lower()
+    if any(code in title for code in ["403", "404", "500"]) or any(kw in title_lower for kw in ["forbidden", "not found"]):
+        if "403" in title or "forbidden" in title_lower:
+            return False, f"Trang hiển thị lỗi 403 Forbidden: Tài khoản không có quyền truy cập hoặc Project ID '{proj_id}' không chính xác."
+        elif "404" in title or "not found" in title_lower:
+            return False, f"Trang hiển thị lỗi 404 Not Found: Dự án với Project ID '{proj_id}' không tồn tại trên hệ thống LIS."
+        else:
+            return False, f"Trang dự án phản hồi lỗi (Tiêu đề: '{title}')."
+
+    # 3. Kiểm tra các thẻ thông báo lỗi trên giao diện Redmine / EasyRedmine
+    try:
+        error_elem = page.locator("#content h2, .wiki h2, #flash_error, .flash.error, .error").first
+        if error_elem.count() > 0 and error_elem.is_visible():
+            err_text = error_elem.inner_text().strip()
+            if any(code in err_text for code in ["403", "404", "500"]) or any(kw in err_text.lower() for kw in ["forbidden", "not authorized", "not found", "không tìm thấy", "không có quyền"]):
+                return False, f"Giao diện LIS báo lỗi: '{err_text}' (Project ID: #{proj_id})."
+    except Exception:
+        pass
+
+    # 4. Kiểm tra cấu trúc menu dự án (Dự án hợp lệ luôn có ít nhất thanh menu hoặc tiêu đề dự án)
+    try:
+        project_nav = page.locator("#main-menu, #header h1, .project-name, #main_menu_top_project")
+        if project_nav.count() == 0:
+            return False, f"Không tìm thấy thanh điều hướng dự án #{proj_id}. Trang hiện tại có thể không phải trang dự án hợp lệ (Tiêu đề: '{title}')."
+    except Exception:
+        pass
+
+    return True, None
+
+
 def set_project_settings(page: Page, planned: bool, public: bool, settings_url: str | None = None) -> bool:
     """
     Vào Settings và cấu hình Planned / Public cho dự án.
