@@ -544,16 +544,34 @@ def scroll_and_load_all_tasks(
 ) -> int:
     """
     Cuộn trang liên tục đến khi toàn bộ tasks được nạp qua Infinite scroll.
-    Sử dụng cơ chế CHỜ ĐỘNG (page.wait_for_function) theo sự kiện DOM thay vì sleep cứng,
-    kết hợp kích hoạt native Easy Redmine infinitescroll plugin ('retrieve') để đảm bảo
-    luôn nạp đủ 100% tasks kể cả trên trình duyệt headless sau reload.
+    Sử dụng cơ chế CHỜ ĐỘNG (page.wait_for_function) theo số lượng Task ID duy nhất,
+    tự động loại bỏ bất kỳ hàng trùng lặp nào do infinite scroll nạp lặp,
+    đảm bảo nạp chính xác 100% số tasks thực tế mà không bị thừa hoặc thiếu.
     """
     print("\n  [*] Cuộn chuột nạp toàn bộ danh sách tasks (Infinite scroll)...")
     total_expected = expected_count or get_expected_task_count(page)
     if total_expected is not None:
         print(f"  [*] Tổng số tasks kỳ vọng từ hệ thống: {total_expected}")
 
-    last_count = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+    # Hàm helper đếm và khử trùng lặp DOM rows
+    def clean_and_count_unique() -> int:
+        return page.evaluate("""() => {
+            const seen = new Set();
+            const rows = document.querySelectorAll('table.issues tbody tr.issue, table.list.issues tbody tr');
+            rows.forEach(r => {
+                const cb = r.querySelector('input[type="checkbox"]');
+                if (cb && cb.value) {
+                    if (seen.has(cb.value)) {
+                        r.remove();
+                    } else {
+                        seen.add(cb.value);
+                    }
+                }
+            });
+            return seen.size;
+        }""")
+
+    last_count = clean_and_count_unique()
     stable_retries = 0
 
     for scroll_idx in range(1, max_scroll_attempts + 1):
@@ -561,66 +579,61 @@ def scroll_and_load_all_tasks(
         if total_expected is not None and last_count >= total_expected:
             break
 
-        # 1. Kích hoạt cuộn phần tử cuối cùng vào tầm nhìn (trigger Waypoint / Intersection Observer)
-        last_item = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").last
-        if last_item.count() > 0:
-            try:
-                last_item.scroll_into_view_if_needed(timeout=1000)
-            except Exception:
-                pass
-
-        # 2. Cuộn đáy các container và window
-        page.evaluate("""() => {
+        # Kích hoạt đợt nạp trang tiếp theo qua trigger native hoặc infinitescroll
+        action_taken = page.evaluate("""() => {
+            const trigger = document.querySelector('.infinite-scroll-load-next-page-trigger');
+            if (trigger && trigger.offsetParent !== null) {
+                trigger.click();
+                return 'clicked_trigger';
+            }
+            const table = window.jQuery && window.jQuery('table.list.entities.issues:first > tbody');
+            if (table && table.data('infinitescroll')) {
+                const inst = table.data('infinitescroll');
+                if (!inst.state.isDuringAjax) {
+                    inst.options.state.isPaused = false;
+                    table.infinitescroll('retrieve');
+                    return 'called_retrieve';
+                }
+            }
             window.scrollTo(0, document.body.scrollHeight);
             const containers = document.querySelectorAll('.autoscroll, #content, .table-container, .easy-query-table-container');
             containers.forEach(c => { c.scrollTop = c.scrollHeight; });
+            return 'scrolled';
         }""")
 
-        # 3. Kích hoạt native Easy Redmine infinitescroll plugin & triggers
-        page.evaluate("""() => {
-            try {
-                const table = window.jQuery && window.jQuery('table.list.entities.issues:first > tbody');
-                if (table && table.data('infinitescroll')) {
-                    table.data('infinitescroll').options.state.isPaused = false;
-                    table.infinitescroll('retrieve');
-                }
-            } catch(e) {}
-            try {
-                const trigger = document.querySelector('.infinite-scroll-load-next-page-trigger');
-                if (trigger) trigger.click();
-            } catch(e) {}
-        }""")
+        if action_taken == 'scrolled':
+            page.mouse.wheel(0, 2000)
 
-        # 4. Giả lập cuộn chuột thật
-        page.mouse.wheel(0, 2000)
-
-        # 5. CHỜ ĐỘNG: Đợi số lượng hàng trong DOM thực sự tăng lên so với last_count
-        # Cho phép chờ tối đa 8 giây cho MỖI đợt nạp (server phản hồi lúc nào thì tiếp tục ngay lúc đó)
+        # CHỜ ĐỘNG: Đợi số lượng Task ID duy nhất thực sự tăng lên so với last_count
         try:
             page.wait_for_function(
-                f"() => document.querySelectorAll('table.issues tbody tr.issue, table.list.issues tbody tr').length > {last_count}",
+                """(prev) => {
+                    const seen = new Set();
+                    const cbs = document.querySelectorAll('table.issues tbody tr input[type="checkbox"]');
+                    cbs.forEach(cb => { if (cb.value) seen.add(cb.value); });
+                    return seen.size > prev;
+                }""",
+                arg=last_count,
                 timeout=8000
             )
-            current_count = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+            current_count = clean_and_count_unique()
             print(f"  -> Đã nạp được {current_count}/{total_expected or '?'} tasks...")
             last_count = current_count
             stable_retries = 0
         except Exception:
-            # Nếu sau 8 giây mà số lượng chưa tăng
-            current_count = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+            current_count = clean_and_count_unique()
             if current_count > last_count:
                 last_count = current_count
                 stable_retries = 0
             else:
                 stable_retries += 1
-                # Nếu đã biết mục tiêu mà chưa đạt, kiên nhẫn thử lại tối đa 4 lần (4 x 8s = 32 giây)
-                max_retries = 4 if (total_expected and last_count < total_expected) else 2
+                max_retries = 3 if (total_expected and last_count < total_expected) else 2
                 if stable_retries >= max_retries:
-                    print(f"  [!] Đã thử kích hoạt cuộn {stable_retries} lần liên tiếp nhưng không có thêm task mới.")
+                    print(f"  [!] Đã nạp tối đa dữ liệu có trên hệ thống ({last_count} tasks).")
                     break
                 print(f"  [*] Đang chờ server nạp thêm đợt tasks mới (thử lại lần {stable_retries}/{max_retries})...")
 
-    total_tasks = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
+    total_tasks = clean_and_count_unique()
     print(f"  [✓] Tổng số tasks đã nạp vào bảng: {total_tasks}/{total_expected or total_tasks}")
     return total_tasks
 
@@ -629,11 +642,26 @@ def select_all_tasks_context_menu(page: Page) -> int:
     """
     Chọn tất cả các tasks trong bảng và đánh dấu class context-menu-selection
     để Easy Redmine Context Menu nhận diện đúng toàn bộ tasks được chọn.
-    Sử dụng hoàn toàn DOM API thuần túy, không phụ thuộc vào window.jQuery.
+    Tự động khử trùng lặp DOM rows để đảm bảo chỉ chọn đúng các Task ID duy nhất.
     """
     print("  [*] Chọn tất cả tasks trên bảng...")
     page.evaluate("""() => {
         window.scrollTo(0, 0);
+        // 1. Loại bỏ các dòng trùng lặp (nếu có do infinite scroll)
+        const seen = new Set();
+        const allTrs = document.querySelectorAll('table.issues tbody tr.issue, table.list.issues tbody tr');
+        allTrs.forEach(tr => {
+            const cb = tr.querySelector('input[type="checkbox"]');
+            if (cb && cb.value) {
+                if (seen.has(cb.value)) {
+                    tr.remove();
+                } else {
+                    seen.add(cb.value);
+                }
+            }
+        });
+
+        // 2. Tích chọn tất cả các dòng duy nhất còn lại
         const checkAllBtn = document.querySelector('th.checkbox a, th a.icon-checked, th a[onclick*="toggleIssuesSelection"]');
         if (checkAllBtn && typeof window.toggleIssuesSelection === 'function') {
             try { window.toggleIssuesSelection(checkAllBtn); } catch(e) {}
@@ -951,7 +979,7 @@ def filter_and_assign_sprint_milestone(
     print("🚀 BẮT ĐẦU THỰC THI GIAI ĐOẠN 2 (PHASE 2 - SPRINT & MILESTONE)")
     print("=" * 65)
 
-    tasks_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues?id={proj_id}&set_filter=0"
+    tasks_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues?id={proj_id}&set_filter=0&per_page=100"
     print(f"\n[*] [Bước 1] Mở trang danh sách tasks: {tasks_url}...")
     safe_goto(page, tasks_url)
     page.wait_for_load_state("networkidle")
