@@ -667,10 +667,15 @@ def open_context_menu_safe(page: Page) -> None:
     print("  [✓] Context Menu đã mở và nạp dữ liệu xong.")
 
 
-def verify_field_applied_sample(page: Page, field_label: str, keyword: str) -> bool:
+def verify_field_applied_sample(
+    page: Page,
+    field_label: str,
+    keyword: str,
+    sample_task_id: str | None = None
+) -> bool:
     """
     Xác thực thực tế trên dữ liệu xem Target Milestone hoặc Sprint đã được ghi nhận vào LIS chưa.
-    Giúp phân biệt chính xác giữa việc máy chủ đã hoàn tất và việc máy chủ vẫn đang lưu dở dang.
+    Sử dụng chính xác Task ID cuối cùng được lưu trước khi reload để không phải cuộn lại từ đầu.
     """
     # 1. Kiểm tra Flash message thành công của Easy Redmine
     try:
@@ -680,37 +685,37 @@ def verify_field_applied_sample(page: Page, field_label: str, keyword: str) -> b
     except Exception:
         pass
 
-    # 2. Lấy mẫu task CUỐI CÙNG trong bảng để kiểm tra trực tiếp
-    # (Vì máy chủ Redmine xử lý ghi dữ liệu tuần tự, khi task CUỐI CÙNG đã có giá trị mới thì 100% toàn bộ các task trước đó đều đã hoàn tất)
+    # 2. Xác định Task ID cần kiểm tra (ưu tiên sample_task_id đã lưu trước đó)
+    target_id = sample_task_id
+    if not target_id:
+        try:
+            sample_row = page.locator("table.issues tbody tr input[type='checkbox']").last
+            if sample_row.count() > 0:
+                target_id = sample_row.get_attribute("value")
+        except Exception:
+            pass
+
+    if not target_id:
+        return False
+
+    # 3. Kiểm tra dữ liệu thực tế của task qua API hoặc HTML
     try:
-        sample_row = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").last
-        if sample_row.count() == 0:
-            return False
-
-        row_id = sample_row.get_attribute("id") or ""
-        m = re.search(r"\d+", row_id)
-        if not m:
-            link = sample_row.locator("td.subject a, td.id a").first
-            href = link.get_attribute("href") or ""
-            m = re.search(r"/issues/(\d+)", href)
-
-        if m:
-            task_id = m.group(0) if m.group(0).isdigit() else m.group(1)
-            # Kiểm tra Target Milestone qua API JSON siêu tốc (0.1s)
-            if "milestone" in field_label.lower():
-                api_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{task_id}.json"
-                res = page.request.get(api_url)
-                if res.status == 200:
-                    fv = res.json().get("issue", {}).get("fixed_version", {})
-                    fv_name = fv.get("name", "") if isinstance(fv, dict) else str(fv or "")
-                    if keyword.lower() in fv_name.lower():
-                        return True
-            else:
-                # Kiểm tra Sprint qua trang HTML chi tiết của task (0.2s)
-                task_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{task_id}"
-                res = page.request.get(task_url)
-                if res.status == 200 and keyword.lower() in res.text().lower():
+        # Kiểm tra Target Milestone qua API JSON siêu tốc (0.1s)
+        if "milestone" in field_label.lower():
+            api_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{target_id}.json"
+            res = page.request.get(api_url)
+            if res.status == 200:
+                data = res.json().get("issue", {})
+                fv = data.get("fixed_version", {})
+                fv_name = fv.get("name", "") if isinstance(fv, dict) else str(fv or "")
+                if keyword.lower() in fv_name.lower():
                     return True
+        else:
+            # Kiểm tra Sprint qua trang HTML chi tiết của task (0.2s)
+            task_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{target_id}"
+            res = page.request.get(task_url)
+            if res.status == 200 and keyword.lower() in res.text().lower():
+                return True
     except Exception:
         pass
 
@@ -722,7 +727,8 @@ def update_context_menu_autocomplete(
     input_id: str,
     field_label: str,
     keyword: str,
-    task_count: int | None = None
+    task_count: int | None = None,
+    sample_task_id: str | None = None
 ) -> bool:
     """
     Tìm kiếm và gán giá trị autocomplete trong Context Menu,
@@ -850,12 +856,12 @@ def update_context_menu_autocomplete(
                 try:
                     rows = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
                     if rows > 0:
-                        # Xác thực trực tiếp trên dữ liệu mẫu của task
-                        if verify_field_applied_sample(page, field_label, keyword):
+                        # Xác thực trực tiếp trên dữ liệu mẫu của task cuối cùng
+                        if verify_field_applied_sample(page, field_label, keyword, sample_task_id=sample_task_id):
                             print(f"  [✓] Hệ thống đã xác thực lưu thành công {field_label} trên LIS ({rows} tasks) sau {elapsed}s!")
                             break
                         else:
-                            # Bảng đã nạp nhưng dữ liệu mẫu vẫn chưa đổi -> LIS vẫn đang tiếp tục ghi ngầm
+                            # Bảng đã nạp nhưng dữ liệu task cuối vẫn chưa đổi -> LIS vẫn đang tiếp tục ghi ngầm
                             reload_started = False
                 except Exception:
                     pass
@@ -1011,13 +1017,18 @@ def filter_and_assign_sprint_milestone(
         return False
 
     select_all_tasks_context_menu(page)
+    # Lấy Task ID cuối cùng thực tế từ DOM (trước khi reload) để xác thực chính xác 100%
+    last_cb_1 = page.locator("table.issues tbody tr input[type='checkbox']").last
+    last_task_id_1 = last_cb_1.get_attribute("value") if last_cb_1.count() > 0 else None
+
     open_context_menu_safe(page)
     update_context_menu_autocomplete(
         page,
         input_id="fixed_version_for_context_menu_issue_autocomplete",
         field_label="Target Milestone",
         keyword=sprint_name,
-        task_count=total_loaded_1
+        task_count=total_loaded_1,
+        sample_task_id=last_task_id_1
     )
 
     # Bước 11: Sprint
@@ -1030,13 +1041,18 @@ def filter_and_assign_sprint_milestone(
         return False
 
     select_all_tasks_context_menu(page)
+    # Lấy Task ID cuối cùng thực tế từ DOM cho Bước 11
+    last_cb_2 = page.locator("table.issues tbody tr input[type='checkbox']").last
+    last_task_id_2 = last_cb_2.get_attribute("value") if last_cb_2.count() > 0 else None
+
     open_context_menu_safe(page)
     update_context_menu_autocomplete(
         page,
         input_id="easy_sprint_id_for_context_menu_issue_autocomplete",
         field_label="Sprint",
         keyword=sprint_name,
-        task_count=total_loaded_2
+        task_count=total_loaded_2,
+        sample_task_id=last_task_id_2
     )
 
     print("\n🎉 HOÀN THÀNH TOÀN BỘ GIAI ĐOẠN 2 THÀNH CÔNG!")
