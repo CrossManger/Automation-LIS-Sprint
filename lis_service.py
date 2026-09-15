@@ -667,6 +667,55 @@ def open_context_menu_safe(page: Page) -> None:
     print("  [✓] Context Menu đã mở và nạp dữ liệu xong.")
 
 
+def verify_field_applied_sample(page: Page, field_label: str, keyword: str) -> bool:
+    """
+    Xác thực thực tế trên dữ liệu xem Target Milestone hoặc Sprint đã được ghi nhận vào LIS chưa.
+    Giúp phân biệt chính xác giữa việc máy chủ đã hoàn tất và việc máy chủ vẫn đang lưu dở dang.
+    """
+    # 1. Kiểm tra Flash message thành công của Easy Redmine
+    try:
+        flash_notice = page.locator(".flash.notice, #flash_notice")
+        if flash_notice.count() > 0 and flash_notice.first.is_visible():
+            return True
+    except Exception:
+        pass
+
+    # 2. Lấy mẫu task đầu tiên trong bảng để kiểm tra trực tiếp
+    try:
+        first_row = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").first
+        if first_row.count() == 0:
+            return False
+
+        row_id = first_row.get_attribute("id") or ""
+        m = re.search(r"\d+", row_id)
+        if not m:
+            link = first_row.locator("td.subject a, td.id a").first
+            href = link.get_attribute("href") or ""
+            m = re.search(r"/issues/(\d+)", href)
+
+        if m:
+            task_id = m.group(0) if m.group(0).isdigit() else m.group(1)
+            # Kiểm tra Target Milestone qua API JSON siêu tốc (0.1s)
+            if "milestone" in field_label.lower():
+                api_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{task_id}.json"
+                res = page.request.get(api_url)
+                if res.status == 200:
+                    fv = res.json().get("issue", {}).get("fixed_version", {})
+                    fv_name = fv.get("name", "") if isinstance(fv, dict) else str(fv or "")
+                    if keyword.lower() in fv_name.lower():
+                        return True
+            else:
+                # Kiểm tra Sprint qua trang HTML chi tiết của task (0.2s)
+                task_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{task_id}"
+                res = page.request.get(task_url)
+                if res.status == 200 and keyword.lower() in res.text().lower():
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
 def update_context_menu_autocomplete(
     page: Page,
     input_id: str,
@@ -682,6 +731,7 @@ def update_context_menu_autocomplete(
       - Tự động phát hiện khi máy chủ lưu xong (qua reload hoặc ajaxComplete/ajaxError).
       - Nếu máy chủ lưu xong nhưng trình duyệt không tự reload (do timeout gateway hoặc mạng),
         chủ động gọi page.reload() để tiếp tục ngay, tránh bị treo vô tận.
+      - Xác thực trực tiếp trên dữ liệu mẫu của task trước khi kết luận hoàn tất.
       - Đảm bảo bảng danh sách công việc hiển thị đầy đủ trước khi chuyển bước tiếp theo.
     """
     print(f"\n[*] Đang thiết lập {field_label}: '{keyword}'...")
@@ -783,7 +833,7 @@ def update_context_menu_autocomplete(
             except Exception:
                 reload_started = True
 
-        # 4. Khi trang đã reload, đợi bảng hiển thị đầy đủ
+        # 4. Khi trang đã reload, đợi bảng hiển thị đầy đủ và xác thực dữ liệu thực tế
         if reload_started:
             try:
                 is_ajax_busy = page.evaluate("""() => {
@@ -799,8 +849,13 @@ def update_context_menu_autocomplete(
                 try:
                     rows = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").count()
                     if rows > 0:
-                        print(f"  [✓] Hệ thống đã lưu thành công {field_label} và nạp lại {rows} tasks sau {elapsed}s!")
-                        break
+                        # Xác thực trực tiếp trên dữ liệu mẫu của task
+                        if verify_field_applied_sample(page, field_label, keyword):
+                            print(f"  [✓] Hệ thống đã xác thực lưu thành công {field_label} trên LIS ({rows} tasks) sau {elapsed}s!")
+                            break
+                        else:
+                            # Bảng đã nạp nhưng dữ liệu mẫu vẫn chưa đổi -> LIS vẫn đang tiếp tục ghi ngầm
+                            reload_started = False
                 except Exception:
                     pass
 
