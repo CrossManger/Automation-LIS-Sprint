@@ -723,30 +723,24 @@ def verify_field_applied_sample(
 ) -> bool:
     """
     Xác thực thực tế trên dữ liệu xem Target Milestone hoặc Sprint đã được ghi nhận vào LIS chưa.
-    Sử dụng chính xác Task ID cuối cùng được lưu trước khi reload để không phải cuộn lại từ đầu.
+    Kiểm tra trực tiếp trên chính Task ID cuối cùng trong danh sách để đảm bảo toàn bộ batch
+    100% tasks đã hoàn tất lưu vào cơ sở dữ liệu.
     """
-    # 1. Kiểm tra Flash message thành công của Easy Redmine
-    try:
-        flash_notice = page.locator(".flash.notice, #flash_notice")
-        if flash_notice.count() > 0 and flash_notice.first.is_visible():
-            return True
-    except Exception:
-        pass
-
-    # 2. Xác định Task ID cần kiểm tra (ưu tiên sample_task_id đã lưu trước đó)
+    # 1. Xác định Task ID cuối cùng cần kiểm tra (ưu tiên sample_task_id đã lưu trước đó)
     target_id = sample_task_id
     if not target_id:
         try:
-            sample_row = page.locator("table.issues tbody tr input[type='checkbox']").last
-            if sample_row.count() > 0:
-                target_id = sample_row.get_attribute("value")
+            target_id = page.evaluate("""() => {
+                const cbs = document.querySelectorAll('table.issues tbody tr input[type="checkbox"]');
+                return cbs.length > 0 ? cbs[cbs.length - 1].value : null;
+            }""")
         except Exception:
             pass
 
     if not target_id:
         return False
 
-    # 3. Kiểm tra dữ liệu thực tế của task qua API hoặc HTML
+    # 2. Kiểm tra dữ liệu thực tế của task cuối cùng qua API hoặc HTML
     try:
         # Kiểm tra Target Milestone qua API JSON siêu tốc (0.1s)
         if "milestone" in field_label.lower():
@@ -757,6 +751,7 @@ def verify_field_applied_sample(
                 fv = data.get("fixed_version", {})
                 fv_name = fv.get("name", "") if isinstance(fv, dict) else str(fv or "")
                 if keyword.lower() in fv_name.lower():
+                    print(f"  [✓] Xác nhận task cuối cùng #{target_id} đã nhận Target Milestone: '{fv_name}'!")
                     return True
         else:
             # Kiểm tra Sprint chính xác trong trường Sprint (tránh nhận diện nhầm với Target Milestone cùng tên)
@@ -769,6 +764,7 @@ def verify_field_applied_sample(
                 if m:
                     val = re.sub(r'<[^>]+>', ' ', m.group(1)).strip()
                     if keyword.lower() in val.lower():
+                        print(f"  [✓] Xác nhận task cuối cùng #{target_id} đã nhận Sprint: '{val}'!")
                         return True
 
                 # Pattern 2: href*="agile_board?sprint_id="
@@ -776,6 +772,7 @@ def verify_field_applied_sample(
                 if m:
                     val = re.sub(r'<[^>]+>', ' ', m.group(1)).strip()
                     if keyword.lower() in val.lower():
+                        print(f"  [✓] Xác nhận task cuối cùng #{target_id} đã nhận Sprint: '{val}'!")
                         return True
 
                 # Pattern 3: <div class="label">Sprint:</div><div class="value">...</div>
@@ -783,6 +780,7 @@ def verify_field_applied_sample(
                 if m:
                     val = re.sub(r'<[^>]+>', ' ', m.group(1)).strip()
                     if keyword.lower() in val.lower():
+                        print(f"  [✓] Xác nhận task cuối cùng #{target_id} đã nhận Sprint: '{val}'!")
                         return True
     except Exception:
         pass
@@ -1087,8 +1085,12 @@ def filter_and_assign_sprint_milestone(
 
     select_all_tasks_context_menu(page)
     # Lấy Task ID cuối cùng thực tế từ DOM (trước khi reload) để xác thực chính xác 100%
-    last_cb_1 = page.locator("table.issues tbody tr input[type='checkbox']").last
-    last_task_id_1 = last_cb_1.get_attribute("value") if last_cb_1.count() > 0 else None
+    last_task_id_1 = page.evaluate("""() => {
+        const cbs = document.querySelectorAll('table.issues tbody tr input[type="checkbox"]');
+        return cbs.length > 0 ? cbs[cbs.length - 1].value : null;
+    }""")
+    if last_task_id_1:
+        print(f"  [*] Task cuối cùng trong danh sách: #{last_task_id_1} (dùng để kiểm chứng Target Milestone hoàn tất 100%)")
 
     open_context_menu_safe(page)
     update_context_menu_autocomplete(
@@ -1111,8 +1113,12 @@ def filter_and_assign_sprint_milestone(
 
     select_all_tasks_context_menu(page)
     # Lấy Task ID cuối cùng thực tế từ DOM cho Bước 11
-    last_cb_2 = page.locator("table.issues tbody tr input[type='checkbox']").last
-    last_task_id_2 = last_cb_2.get_attribute("value") if last_cb_2.count() > 0 else None
+    last_task_id_2 = page.evaluate("""() => {
+        const cbs = document.querySelectorAll('table.issues tbody tr input[type="checkbox"]');
+        return cbs.length > 0 ? cbs[cbs.length - 1].value : null;
+    }""")
+    if last_task_id_2:
+        print(f"  [*] Task cuối cùng trong danh sách: #{last_task_id_2} (dùng để kiểm chứng Sprint hoàn tất 100%)")
 
     open_context_menu_safe(page)
     update_context_menu_autocomplete(
