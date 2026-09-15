@@ -858,7 +858,8 @@ def update_context_menu_autocomplete(
                     if rows > 0:
                         # Xác thực trực tiếp trên dữ liệu mẫu của task cuối cùng
                         if verify_field_applied_sample(page, field_label, keyword, sample_task_id=sample_task_id):
-                            print(f"  [✓] Hệ thống đã xác thực lưu thành công {field_label} trên LIS ({rows} tasks) sau {elapsed}s!")
+                            total_display = task_count or rows
+                            print(f"  [✓] Hệ thống đã xác thực lưu thành công {field_label} trên LIS ({total_display} tasks) sau {elapsed}s!")
                             break
                         else:
                             # Bảng đã nạp nhưng dữ liệu task cuối vẫn chưa đổi -> LIS vẫn đang tiếp tục ghi ngầm
