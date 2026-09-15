@@ -677,16 +677,36 @@ def update_context_menu_autocomplete(
     """
     Tìm kiếm và gán giá trị autocomplete trong Context Menu,
     sau đó tự động theo dõi chu trình lưu dữ liệu và nạp lại trang:
-      - Đặt marker theo dõi reload trên window cũ.
+      - Đặt marker theo dõi reload và lắng nghe sự kiện AJAX.
       - Kích hoạt select qua autocompleteselect.
-      - Theo dõi máy chủ lưu ngầm và bắt trọn thời điểm trang được reload xong.
+      - Tự động phát hiện khi máy chủ lưu xong (qua reload hoặc ajaxComplete/ajaxError).
+      - Nếu máy chủ lưu xong nhưng trình duyệt không tự reload (do timeout gateway hoặc mạng),
+        chủ động gọi page.reload() để tiếp tục ngay, tránh bị treo vô tận.
       - Đảm bảo bảng danh sách công việc hiển thị đầy đủ trước khi chuyển bước tiếp theo.
     """
     print(f"\n[*] Đang thiết lập {field_label}: '{keyword}'...")
     page.wait_for_selector(f"#{input_id}", state="attached", timeout=8000)
 
-    # Đặt marker trên window cũ để nhận diện thời điểm trang reload
-    page.evaluate("() => { window.__phase2_waiting_reload__ = true; }")
+    # Đặt marker trên window cũ và cài đặt listener bắt sự kiện AJAX
+    page.evaluate("""() => {
+        window.__phase2_waiting_reload__ = true;
+        window.__phase2_ajax_status__ = 'pending';
+        window.__phase2_ajax_code__ = 0;
+        if (window.jQuery) {
+            window.jQuery(document).one('ajaxComplete', function(e, xhr, settings) {
+                if (settings && settings.url && settings.url.includes('bulk_update')) {
+                    window.__phase2_ajax_status__ = 'completed';
+                    window.__phase2_ajax_code__ = xhr.status;
+                }
+            });
+            window.jQuery(document).one('ajaxError', function(e, xhr, settings) {
+                if (settings && settings.url && settings.url.includes('bulk_update')) {
+                    window.__phase2_ajax_status__ = 'error';
+                    window.__phase2_ajax_code__ = xhr.status;
+                }
+            });
+        }
+    }""")
 
     # Kích hoạt lựa chọn mục tương ứng trong Context Menu
     select_res = page.evaluate(f"""() => {{
@@ -711,8 +731,9 @@ def update_context_menu_autocomplete(
 
     t0 = time.time()
     reload_started = False
+    ajax_done_time = None
 
-    # Chờ động không giới hạn cho đến khi trang reload và hiển thị bảng mới
+    # Chờ động kết hợp bắt sự kiện AJAX và chủ động làm mới trang
     while True:
         time.sleep(1)
         elapsed = int(time.time() - t0)
@@ -726,7 +747,43 @@ def update_context_menu_autocomplete(
             # Context JavaScript bị ngắt trong lúc trang đang unload/reload
             reload_started = True
 
-        # 2. Nếu đã reload sang trang mới:
+        # 2. Kiểm tra trạng thái AJAX của bulk_update
+        if not reload_started:
+            try:
+                ajax_info = page.evaluate("""() => {
+                    const status = window.__phase2_ajax_status__ || 'pending';
+                    const active = (window.jQuery && typeof window.jQuery.active === 'number') ? window.jQuery.active : 0;
+                    const el = document.getElementById('ajax-indicator');
+                    const indicatorHidden = !el || el.style.display === 'none' || window.getComputedStyle(el).display === 'none';
+                    return { status: status, active: active, indicatorHidden: indicatorHidden };
+                }""")
+            except Exception:
+                ajax_info = {"status": "pending", "active": 0, "indicatorHidden": False}
+
+            # Nếu AJAX đã hoàn thành/lỗi, hoặc indicator đã tắt và không còn active request (sau ít nhất 30s)
+            if ajax_info.get("status") in ("completed", "error") or (elapsed >= 30 and ajax_info.get("indicatorHidden") and ajax_info.get("active") == 0):
+                if ajax_done_time is None:
+                    ajax_done_time = time.time()
+
+                # Nếu sau 4 giây kể từ khi AJAX xong mà trang vẫn chưa tự reload
+                if time.time() - ajax_done_time >= 4:
+                    print(f"  [*] Máy chủ LIS đã xử lý xong yêu cầu lưu (sau {elapsed}s). Đang làm mới danh sách công việc...")
+                    try:
+                        page.reload()
+                        reload_started = True
+                    except Exception:
+                        reload_started = True
+
+        # 3. Fallback: Nếu sau mỗi 30s kể từ mốc 90s mà vẫn chưa reload (chống đơ mạng / gateway drop)
+        if not reload_started and elapsed >= 90 and elapsed % 30 == 0:
+            print(f"  [*] Đang kiểm tra và cập nhật trạng thái từ máy chủ LIS ({elapsed}s)...")
+            try:
+                page.reload()
+                reload_started = True
+            except Exception:
+                reload_started = True
+
+        # 4. Khi trang đã reload, đợi bảng hiển thị đầy đủ
         if reload_started:
             try:
                 is_ajax_busy = page.evaluate("""() => {
@@ -747,21 +804,9 @@ def update_context_menu_autocomplete(
                 except Exception:
                     pass
 
-        # 3. Fallback: Nếu sau 15s mà context menu đã biến mất và indicator đã ẩn
-        if elapsed >= 15 and not reload_started:
-            try:
-                menu_visible = page.locator("#context-menu").is_visible()
-                if not menu_visible:
-                    reload_started = True
-            except Exception:
-                reload_started = True
-
         # In log tiến độ mỗi 10 giây để người dùng theo dõi
-        if elapsed > 0 and elapsed % 10 == 0:
-            if not reload_started:
-                print(f"  [*] Đang chờ máy chủ LIS lưu {field_label} vào cơ sở dữ liệu ({elapsed}s)...")
-            else:
-                print(f"  [*] Đang hoàn tất nạp lại danh sách công việc ({elapsed}s)...")
+        if elapsed > 0 and elapsed % 10 == 0 and not reload_started:
+            print(f"  [*] Đang chờ máy chủ LIS lưu {field_label} vào cơ sở dữ liệu ({elapsed}s)...")
 
     # Đợi ổn định hoàn toàn cả DOM và Network
     try:
