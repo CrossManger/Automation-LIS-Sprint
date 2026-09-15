@@ -680,16 +680,17 @@ def verify_field_applied_sample(page: Page, field_label: str, keyword: str) -> b
     except Exception:
         pass
 
-    # 2. Lấy mẫu task đầu tiên trong bảng để kiểm tra trực tiếp
+    # 2. Lấy mẫu task CUỐI CÙNG trong bảng để kiểm tra trực tiếp
+    # (Vì máy chủ Redmine xử lý ghi dữ liệu tuần tự, khi task CUỐI CÙNG đã có giá trị mới thì 100% toàn bộ các task trước đó đều đã hoàn tất)
     try:
-        first_row = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").first
-        if first_row.count() == 0:
+        sample_row = page.locator("table.issues tbody tr.issue, table.list.issues tbody tr").last
+        if sample_row.count() == 0:
             return False
 
-        row_id = first_row.get_attribute("id") or ""
+        row_id = sample_row.get_attribute("id") or ""
         m = re.search(r"\d+", row_id)
         if not m:
-            link = first_row.locator("td.subject a, td.id a").first
+            link = sample_row.locator("td.subject a, td.id a").first
             href = link.get_attribute("href") or ""
             m = re.search(r"/issues/(\d+)", href)
 
