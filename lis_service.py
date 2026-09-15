@@ -537,14 +537,19 @@ def get_expected_task_count(page: Page) -> int | None:
     return None
 
 
-def scroll_and_load_all_tasks(page: Page, max_scroll_attempts: int = 40) -> int:
+def scroll_and_load_all_tasks(
+    page: Page,
+    max_scroll_attempts: int = 40,
+    expected_count: int | None = None
+) -> int:
     """
     Cuộn trang liên tục đến khi toàn bộ tasks được nạp qua Infinite scroll.
     Sử dụng cơ chế CHỜ ĐỘNG (page.wait_for_function) theo sự kiện DOM thay vì sleep cứng,
-    hoàn toàn không bị phụ thuộc vào tốc độ mạng hay thời gian phản hồi của server.
+    kết hợp kích hoạt native Easy Redmine infinitescroll plugin ('retrieve') để đảm bảo
+    luôn nạp đủ 100% tasks kể cả trên trình duyệt headless sau reload.
     """
     print("\n  [*] Cuộn chuột nạp toàn bộ danh sách tasks (Infinite scroll)...")
-    total_expected = get_expected_task_count(page)
+    total_expected = expected_count or get_expected_task_count(page)
     if total_expected is not None:
         print(f"  [*] Tổng số tasks kỳ vọng từ hệ thống: {total_expected}")
 
@@ -564,17 +569,32 @@ def scroll_and_load_all_tasks(page: Page, max_scroll_attempts: int = 40) -> int:
             except Exception:
                 pass
 
-        # 2. Cuộn đáy các container
+        # 2. Cuộn đáy các container và window
         page.evaluate("""() => {
             window.scrollTo(0, document.body.scrollHeight);
             const containers = document.querySelectorAll('.autoscroll, #content, .table-container, .easy-query-table-container');
             containers.forEach(c => { c.scrollTop = c.scrollHeight; });
         }""")
 
-        # 3. Giả lập cuộn chuột thật
+        # 3. Kích hoạt native Easy Redmine infinitescroll plugin & triggers
+        page.evaluate("""() => {
+            try {
+                const table = window.jQuery && window.jQuery('table.list.entities.issues:first > tbody');
+                if (table && table.data('infinitescroll')) {
+                    table.data('infinitescroll').options.state.isPaused = false;
+                    table.infinitescroll('retrieve');
+                }
+            } catch(e) {}
+            try {
+                const trigger = document.querySelector('.infinite-scroll-load-next-page-trigger');
+                if (trigger) trigger.click();
+            } catch(e) {}
+        }""")
+
+        # 4. Giả lập cuộn chuột thật
         page.mouse.wheel(0, 2000)
 
-        # 4. CHỜ ĐỘNG: Đợi số lượng hàng trong DOM thực sự tăng lên so với last_count
+        # 5. CHỜ ĐỘNG: Đợi số lượng hàng trong DOM thực sự tăng lên so với last_count
         # Cho phép chờ tối đa 8 giây cho MỖI đợt nạp (server phản hồi lúc nào thì tiếp tục ngay lúc đó)
         try:
             page.wait_for_function(
@@ -593,8 +613,8 @@ def scroll_and_load_all_tasks(page: Page, max_scroll_attempts: int = 40) -> int:
                 stable_retries = 0
             else:
                 stable_retries += 1
-                # Nếu đã biết mục tiêu mà chưa đạt, kiên nhẫn thử lại tối đa 3 lần (3 x 8s = 24 giây)
-                max_retries = 3 if (total_expected and last_count < total_expected) else 2
+                # Nếu đã biết mục tiêu mà chưa đạt, kiên nhẫn thử lại tối đa 4 lần (4 x 8s = 32 giây)
+                max_retries = 4 if (total_expected and last_count < total_expected) else 2
                 if stable_retries >= max_retries:
                     print(f"  [!] Đã thử kích hoạt cuộn {stable_retries} lần liên tiếp nhưng không có thêm task mới.")
                     break
@@ -711,11 +731,31 @@ def verify_field_applied_sample(
                 if keyword.lower() in fv_name.lower():
                     return True
         else:
-            # Kiểm tra Sprint qua trang HTML chi tiết của task (0.2s)
+            # Kiểm tra Sprint chính xác trong trường Sprint (tránh nhận diện nhầm với Target Milestone cùng tên)
             task_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues/{target_id}"
             res = page.request.get(task_url)
-            if res.status == 200 and keyword.lower() in res.text().lower():
-                return True
+            if res.status == 200:
+                html = res.text()
+                # Pattern 1: <th>Sprint:</th><td>...</td>
+                m = re.search(r'<th[^>]*>\s*(?:Easy\s*)?Sprint\s*:?\s*</th>\s*<td[^>]*>(.*?)</td>', html, re.IGNORECASE | re.DOTALL)
+                if m:
+                    val = re.sub(r'<[^>]+>', ' ', m.group(1)).strip()
+                    if keyword.lower() in val.lower():
+                        return True
+
+                # Pattern 2: href*="agile_board?sprint_id="
+                m = re.search(r'href=[\'\"][^\'\"]*agile_board\?sprint_id=\d+[\'\"][^>]*>(.*?)</a>', html, re.IGNORECASE | re.DOTALL)
+                if m:
+                    val = re.sub(r'<[^>]+>', ' ', m.group(1)).strip()
+                    if keyword.lower() in val.lower():
+                        return True
+
+                # Pattern 3: <div class="label">Sprint:</div><div class="value">...</div>
+                m = re.search(r'<div[^>]*class=[\'\"][^\'\"]*label[^\'\"]*[\'\"][^>]*>\s*(?:<span>)?\s*(?:Easy\s*)?Sprint\s*:?\s*(?:</span>)?\s*</div>\s*<div[^>]*class=[\'\"][^\'\"]*value[^\'\"]*[\'\"][^>]*>(.*?)</div>', html, re.IGNORECASE | re.DOTALL)
+                if m:
+                    val = re.sub(r'<[^>]+>', ' ', m.group(1)).strip()
+                    if keyword.lower() in val.lower():
+                        return True
     except Exception:
         pass
 
@@ -1036,7 +1076,7 @@ def filter_and_assign_sprint_milestone(
     print("\n" + "=" * 65)
     print("🏃 BƯỚC 11: THIẾT LẬP SPRINT")
     print("=" * 65)
-    total_loaded_2 = scroll_and_load_all_tasks(page)
+    total_loaded_2 = scroll_and_load_all_tasks(page, expected_count=total_loaded_1)
     if total_loaded_2 == 0:
         print("\n[!] CẢNH BÁO: Bảng không có công việc nào (0 tasks) để gán Sprint.")
         return False
