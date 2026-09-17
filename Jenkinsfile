@@ -31,7 +31,7 @@ pipeline {
         // =========================================================================
         string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (e.g. Trang Pham-Tran-Minh) (Bỏ qua nếu chọn type 2)')
         choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type (Bỏ qua nếu chọn type 2)')
-        choice(name: 'ENVIRONMENT', choices: ['Production', 'Development', 'Testing', 'Local'], description: 'Environment (Bỏ qua nếu chọn type 2)')
+        choice(name: 'ENVIRONMENT', choices: ['Development', 'Production', 'Testing', 'Local'], description: 'Environment (Bỏ qua nếu chọn type 2)')
         base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template (Bỏ qua nếu chọn type 2)')
         base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File (Bỏ qua nếu chọn type 2)')
     }
