@@ -359,6 +359,37 @@ class ImportSummaryTracker:
             pass
 
 
+def execute_import(
+    importer_page: Page,
+    milestone: dict,
+    task_id: str,
+    file_key: str,
+    layer_name: str,
+    lis_page: Page | None = None,
+) -> tuple[bool, str]:
+    """
+    Thực hiện import đúng 1 lần duy nhất (không retry nếu gặp sự cố).
+    Ghi nhận phần trăm (%) tại thời điểm hoàn thành hoặc gặp sự cố.
+    Trả về: (is_success, status_message)
+    """
+    print(f"\n[*] Đang thực hiện {layer_name}...")
+    try:
+        success, stopped_percent = fill_importer_form(
+            importer_page, milestone, task_id, file_key=file_key, lis_page=lis_page
+        )
+    except Exception as e:
+        print(f"  [!] Lỗi bất thường trong quá trình import: {e}")
+        success, stopped_percent = False, "0%"
+
+    if success:
+        status_msg = "Thành công"
+        return True, status_msg
+
+    print(f"\n[!] {layer_name} không thành công (dừng ở mức {stopped_percent}). Dừng tiến trình ngay lập tức (không thử lại).")
+    status_msg = f"Thất bại (dừng ở mức {stopped_percent})"
+    return False, status_msg
+
+
 def execute_import_with_retry(
     importer_page: Page,
     milestone: dict,
@@ -366,48 +397,14 @@ def execute_import_with_retry(
     file_key: str,
     layer_name: str,
     lis_page: Page | None = None,
-    max_retries: int = 1
+    max_retries: int = 0
 ) -> tuple[bool, int, str]:
     """
-    Thực hiện import với cơ chế tự động thử lại (retry) tối đa max_retries lần nếu gặp sự cố.
-    Ghi nhận phần trăm (%) tại thời điểm gặp sự cố.
-    Trả về: (is_success, total_attempts, status_message)
+    Thực hiện import 1 lần duy nhất (không retry).
+    Trả về: (is_success, total_attempts, status_message) với total_attempts = 1.
     """
-    total_attempts = max_retries + 1
-    attempt_failures = []
+    success, status_msg = execute_import(
+        importer_page, milestone, task_id, file_key=file_key, layer_name=layer_name, lis_page=lis_page
+    )
+    return success, 1, status_msg
 
-    for attempt in range(1, total_attempts + 1):
-        if attempt > 1:
-            prev_stopped = attempt_failures[-1] if attempt_failures else "0%"
-            print(f"\n[!] PHÁT HIỆN SỰ CỐ (Dừng ở mức {prev_stopped}) - TIẾN HÀNH THỬ LẠI (RETRY {attempt - 1}/{max_retries}) CHO {layer_name.upper()}...")
-            # Làm mới lại trang Importer trước khi thử lại
-            try:
-                safe_goto(importer_page, config.IMPORTER_URL)
-                importer_page.wait_for_load_state("networkidle")
-                time.sleep(2)
-            except Exception as e:
-                print(f"  [!] Cảnh báo làm mới trang Importer: {e}")
-
-        print(f"\n[*] Đang thực hiện {layer_name} (Lần thử {attempt}/{total_attempts})...")
-        try:
-            success, stopped_percent = fill_importer_form(
-                importer_page, milestone, task_id, file_key=file_key, lis_page=lis_page
-            )
-        except Exception as e:
-            print(f"  [!] Lỗi bất thường trong quá trình import: {e}")
-            success, stopped_percent = False, "0%"
-
-        if success:
-            if attempt == 1:
-                status_msg = "Thành công (1 lần chạy)"
-            else:
-                first_stopped = attempt_failures[0] if attempt_failures else "0%"
-                status_msg = f"Thành công (sau 1 lần thử lại; lần 1 dừng ở mức {first_stopped})"
-            return True, attempt, status_msg
-
-        attempt_failures.append(stopped_percent)
-        print(f"\n[!] {layer_name} (Lần thử {attempt}/{total_attempts}) không thành công (dừng ở mức {stopped_percent}).")
-
-    failure_details = ", ".join([f"lần {i+1}: {pct}" for i, pct in enumerate(attempt_failures)])
-    status_msg = f"Thất bại (sau {total_attempts} lần thử; {failure_details})"
-    return False, total_attempts, status_msg

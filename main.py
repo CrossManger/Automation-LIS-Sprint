@@ -266,12 +266,12 @@ def run_automation(data_file_path: str | None = None):
         print("\n=== BẮT ĐẦU IMPORT LẦN 1: TẠO CẤU TRÚC SUBTASKS MẪU ===")
         l1_success, l1_attempts, l1_status = execute_import_with_retry(
             importer_page, milestone, task_id, file_key="Upload File",
-            layer_name="Import Tầng 1 (Cấu trúc Sprint)", lis_page=page, max_retries=1
+            layer_name="Import Tầng 1 (Cấu trúc Sprint)", lis_page=page, max_retries=0
         )
         import_tracker.update("layer1", success=l1_success, status=l1_status)
 
         if not l1_success:
-            print(f"\n[X] DỪNG QUY TRÌNH: Import Tầng 1 (Structure Template) thất bại sau {l1_attempts} lần thử.")
+            print(f"\n[X] DỪNG QUY TRÌNH: Import Tầng 1 (Structure Template) thất bại ({l1_status}).")
             import_tracker.update("layer2", success=False, status="Không thực hiện (do Tầng 1 thất bại)")
             import_tracker.print_summary()
             set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
@@ -318,12 +318,12 @@ def run_automation(data_file_path: str | None = None):
 
         l2_success, l2_attempts, l2_status = execute_import_with_retry(
             importer_page, milestone, work_items_task_id, file_key="Upload Work Items File",
-            layer_name="Import Tầng 2 (Chi tiết Work Items)", lis_page=page, max_retries=1
+            layer_name="Import Tầng 2 (Chi tiết Work Items)", lis_page=page, max_retries=0
         )
         import_tracker.update("layer2", success=l2_success, status=l2_status)
 
         if not l2_success:
-            print(f"\n[X] DỪNG QUY TRÌNH: Import Tầng 2 (Work Items Detail) thất bại sau {l2_attempts} lần thử.")
+            print(f"\n[X] DỪNG QUY TRÌNH: Import Tầng 2 (Work Items Detail) thất bại ({l2_status}).")
             import_tracker.print_summary()
             set_project_settings(page, planned=False, public=True, settings_url=project_settings_url)
             browser.close()
