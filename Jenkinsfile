@@ -6,22 +6,29 @@ pipeline {
             name: 'EXECUTION_MODE',
             choices: ['ALL (Phase 1 + Phase 2)', 'PHASE_1_ONLY', 'PHASE_2_ONLY'],
             description: '''Chọn chế độ thực thi:
-• ALL (Phase 1 + Phase 2) (Mặc định): Chạy toàn trình từ A đến Z (Tạo Sprint, nạp 2 file Excel, lọc task, gán Milestone/Sprint và xác minh database).
-• PHASE_1_ONLY: Chỉ tạo Sprint và nạp Excel (dành cho khi bạn chỉ muốn import).
-• PHASE_2_ONLY: Chỉ lọc task và gán Milestone/Sprint (không cần chọn file Excel, tiện lợi khi muốn chạy lại Phase 2).'''
+• ALL (Phase 1 + Phase 2) (Mặc định): Chạy toàn trình từ A đến Z.
+• PHASE_1_ONLY: Chỉ tạo Sprint và nạp 2 file Excel.
+• PHASE_2_ONLY: Chỉ lọc task và gán Milestone/Sprint (BỎ QUA 2 file Excel và các trường Phase 1).'''
         )
-        string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username')
-        password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password')
-        string(name: 'SPRINT_NAME', defaultValue: '', description: 'Sprint Name')
-        string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)')
-        string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
-        choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type')
-        choice(name: 'ENVIRONMENT', choices: ['Development', 'Testing', 'Production', 'Local'], description: 'Environment')
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (e.g. Trang Pham-Tran-Minh)')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID On LIS (e.g. 786 for Team MAX)')
-        // 2 file Excel nạp vào hệ thống (chỉ bắt buộc khi chạy Phase 1 hoặc ALL)
-        base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template')
-        base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File')
+
+        // =========================================================================
+        // NHÓM 1: CÁC TRƯỜNG DÙNG CHO PHASE 2 (VÀ CHUNG CHO CẢ 2 PHASES)
+        // =========================================================================
+        string(name: 'LIS_USERNAME', defaultValue: '', description: '[PHASE 2 & CHUNG] Tài khoản LIS')
+        password(name: 'LIS_PASSWORD', defaultValue: '', description: '[PHASE 2 & CHUNG] Mật khẩu LIS')
+        string(name: 'PROJECT_ID', defaultValue: '786', description: '[PHASE 2 & CHUNG] Mã dự án (Mặc định: 786 cho Team MAX)')
+        string(name: 'SPRINT_NAME', defaultValue: '', description: '[PHASE 2 & CHUNG] Tên Sprint (ví dụ: 2026 Oct 01 Sprint)')
+        string(name: 'START_DATE', defaultValue: '', description: '[PHASE 2 & CHUNG] Ngày bắt đầu (YYYY-MM-DD)')
+        string(name: 'DUE_DATE', defaultValue: '', description: '[PHASE 2 & CHUNG] Ngày kết thúc (YYYY-MM-DD)')
+
+        // =========================================================================
+        // NHÓM 2: CÁC TRƯỜNG CHỈ DÙNG CHO PHASE 1 (BỎ TRỐNG / BỎ QUA KHI CHỌN PHASE 2)
+        // =========================================================================
+        string(name: 'ASSIGNEE', defaultValue: '', description: '👉 [CHỈ DÙNG CHO PHASE 1 / ALL] Người phụ trách Parent Task (BỎ TRỐNG nếu chọn PHASE_2_ONLY)')
+        choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: '👉 [CHỈ DÙNG CHO PHASE 1 / ALL] Release Type (Bỏ qua nếu chọn PHASE_2_ONLY)')
+        choice(name: 'ENVIRONMENT', choices: ['Production', 'Development', 'Testing', 'Local'], description: '👉 [CHỈ DÙNG CHO PHASE 1 / ALL] Environment (Bỏ qua nếu chọn PHASE_2_ONLY)')
+        base64File(name: 'STRUCTURE_FILE', description: '👉 [CHỈ DÙNG CHO PHASE 1 / ALL] File Excel Template (KHÔNG CẦN CHỌN nếu chọn PHASE_2_ONLY)')
+        base64File(name: 'WORK_ITEMS_FILE', description: '👉 [CHỈ DÙNG CHO PHASE 1 / ALL] File Excel Work Items (KHÔNG CẦN CHỌN nếu chọn PHASE_2_ONLY)')
     }
 
     environment {
