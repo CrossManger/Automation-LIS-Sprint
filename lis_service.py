@@ -471,37 +471,71 @@ def fill_task_form(page: Page, item: dict) -> tuple[bool, str | None]:
 def fill_date_filter_range(page: Page, field_name: str, date_value: str) -> None:
     """
     Điền dải ngày (From / To) cho một bộ lọc cụ thể (start_date hoặc due_date):
+      - Đảm bảo radio button kỳ thứ 2 (#<field_name>_date_period_2) được chọn trước để hiển thị From / To.
       - Cả From và To đều nhận date_value.
-      - Tích chọn radio button kỳ thứ 2 (#<field_name>_date_period_2).
     """
     friendly_label = "Ngày bắt đầu (Start date)" if "start" in field_name.lower() else "Ngày kết thúc (Due date)"
     print(f"\n[*] Đang thiết lập dải ngày cho '{friendly_label}'...")
-    from_input = page.locator(f"#{field_name}_from")
-    from_input.wait_for(state="visible", timeout=10000)
-    from_input.scroll_into_view_if_needed()
 
+    # 1. Chờ phần tử đính kèm vào DOM (attached, không bắt buộc visible ngay vì radio 2 chưa được tích)
+    try:
+        page.wait_for_selector(
+            f"#{field_name}_date_period_2, #{field_name}_from, #cb_{field_name}",
+            state="attached",
+            timeout=10000
+        )
+    except Exception as ex:
+        print(f"  [!] Cảnh báo khi chờ phần tử {field_name}: {ex}")
+
+    # 2. Tích chọn radio button kỳ thứ 2 (custom range) trước để Easy Redmine hiển thị input From / To
     page.evaluate(f"""() => {{
         const radio = document.querySelector('#{field_name}_date_period_2');
         if (radio) {{
             radio.checked = true;
+            radio.dispatchEvent(new Event('click', {{ bubbles: true }}));
             radio.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            if (window.jQuery) window.jQuery(radio).trigger('change');
         }}
+    }}""")
+    time.sleep(0.3)
+
+    radio_locator = page.locator(f"#{field_name}_date_period_2")
+    if radio_locator.count() > 0:
+        try:
+            if not radio_locator.is_checked():
+                radio_locator.check(force=True)
+        except Exception:
+            pass
+
+    # 3. Điền giá trị vào from và to bằng JS evaluate kèm dispatch các sự kiện
+    page.evaluate(f"""() => {{
         const fromInp = document.querySelector('#{field_name}_from');
         if (fromInp) {{
             fromInp.value = '{date_value}';
+            fromInp.dispatchEvent(new Event('input', {{ bubbles: true }}));
             fromInp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            if (window.jQuery) window.jQuery(fromInp).trigger('change');
         }}
         const toInp = document.querySelector('#{field_name}_to');
         if (toInp) {{
             toInp.value = '{date_value}';
+            toInp.dispatchEvent(new Event('input', {{ bubbles: true }}));
             toInp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            if (window.jQuery) window.jQuery(toInp).trigger('change');
         }}
     }}""")
-    time.sleep(0.5)
+    time.sleep(0.3)
 
-    radio_locator = page.locator(f"#{field_name}_date_period_2")
-    if radio_locator.count() > 0 and not radio_locator.is_checked():
-        radio_locator.check()
+    # 4. Thử điền bổ sung bằng Playwright locator nếu ô input đã hiển thị
+    try:
+        from_input = page.locator(f"#{field_name}_from")
+        if from_input.count() > 0 and from_input.is_visible():
+            from_input.fill(date_value)
+        to_input = page.locator(f"#{field_name}_to")
+        if to_input.count() > 0 and to_input.is_visible():
+            to_input.fill(date_value)
+    except Exception:
+        pass
 
     print(f"  -> [✓] Đã chọn dải ngày cho {friendly_label}: {date_value}")
 
@@ -1000,17 +1034,42 @@ def filter_and_assign_sprint_milestone(
 
     # Thêm bộ lọc Start date và Due date
     print("\n[*] [Bước 3 & 4] Thêm bộ lọc 'Start date' và 'Due date'...")
-    add_filter_select = page.locator("#add_filter_select")
-    try:
-        add_filter_select.select_option(value="start_date")
-    except Exception:
-        pass
-    time.sleep(0.5)
-    try:
-        add_filter_select.select_option(value="due_date")
-    except Exception:
-        pass
-    time.sleep(0.5)
+    for field, label in [("start_date", "Start date"), ("due_date", "Due date")]:
+        # Kiểm tra xem bộ lọc đã có trong DOM chưa
+        filter_ready = page.evaluate(f"""(f) => {{
+            const cb = document.querySelector('#cb_' + f);
+            if (cb) {{
+                if (!cb.checked) {{
+                    cb.checked = true;
+                    cb.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+                return true;
+            }}
+            const tr = document.querySelector('#tr_' + f);
+            if (tr) return true;
+            const inp = document.querySelector('#' + f + '_from');
+            if (inp) return true;
+            return false;
+        }}""", field)
+
+        if not filter_ready:
+            try:
+                add_filter_select = page.locator("#add_filter_select")
+                if add_filter_select.count() > 0:
+                    add_filter_select.select_option(value=field, timeout=3000)
+            except Exception:
+                page.evaluate(f"""(f) => {{
+                    const sel = document.querySelector('#add_filter_select');
+                    if (sel) {{
+                        const opt = Array.from(sel.options).find(o => o.value === f);
+                        if (opt) {{
+                            sel.value = f;
+                            sel.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            if (typeof window.add_filter === 'function') window.add_filter();
+                        }}
+                    }}
+                }}""", field)
+            time.sleep(0.5)
 
     # Điền dải ngày
     print(f"\n[*] [Bước 5 & 6] Điền ngày: Start={start_date}, Due={due_date}...")

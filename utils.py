@@ -14,11 +14,16 @@ def safe_goto(page_obj: Page, url: str, max_retries: int = 6, timeout: int = 600
     """Truy cập URL an toàn với cơ chế tự động thử lại tối đa 6 lần khi gặp sự cố mạng (ERR_NETWORK_CHANGED, timeout, v.v.)."""
     for attempt in range(1, max_retries + 1):
         try:
-            return page_obj.goto(url, timeout=timeout, wait_until="load")
+            res = page_obj.goto(url, timeout=timeout, wait_until="load")
+            if attempt > 1:
+                print(f"  -> [✓] Đã kết nối lại thành công ở lần thử {attempt}/{max_retries}!")
+            return res
         except Exception as e:
             print(f"[!] Cảnh báo mạng khi truy cập {url} (Lần thử {attempt}/{max_retries}): {e}")
             if attempt < max_retries:
-                time.sleep(2 * attempt)
+                delay = 2 * attempt
+                print(f"  [*] Đang đợi {delay}s để tự động thử kết nối lại (Lần thử {attempt + 1}/{max_retries})...")
+                time.sleep(delay)
             else:
                 raise
 
