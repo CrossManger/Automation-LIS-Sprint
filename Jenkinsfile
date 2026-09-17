@@ -20,8 +20,8 @@ pipeline {
         // =========================================================================
         string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username')
         password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password')
-        string(name: 'PROJECT_ID', defaultValue: '786', description: 'Project ID On LIS (786 cho MAX, 83 cho Dev 1, hoặc ID khác)')
-        string(name: 'PROJECT_FILTER', defaultValue: '', description: 'Project Filter On LIS (Bắt buộc nếu ID khác 786/83, vd: ------ MAX, ---------- Dev 1)')
+        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID On LIS (e.g. 786 for Team MAX)')
+        string(name: 'PROJECT_FILTER', defaultValue: '', description: 'Project Filter On LIS (Bắt buộc nếu ID khác 786 và 83')
         string(name: 'SPRINT_NAME', defaultValue: '', description: 'Sprint Name')
         string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)')
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
@@ -29,11 +29,11 @@ pipeline {
         // =========================================================================
         // NHÓM 2: CÁC TRƯỜNG CHỈ DÙNG CHO TYPE (1) (BỎ TRỐNG / BỎ QUA KHI CHỌN TYPE (2))
         // =========================================================================
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (Bỏ qua nếu chọn type (2))')
-        choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type (Bỏ qua nếu chọn type (2))')
-        choice(name: 'ENVIRONMENT', choices: ['Production', 'Development', 'Testing', 'Local'], description: 'Environment (Bỏ qua nếu chọn type (2))')
-        base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template (Bỏ qua nếu chọn type (2))')
-        base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File (Bỏ qua nếu chọn type (2))')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (Bỏ qua nếu chọn type 2)')
+        choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type (Bỏ qua nếu chọn type 2)')
+        choice(name: 'ENVIRONMENT', choices: ['Production', 'Development', 'Testing', 'Local'], description: 'Environment (Bỏ qua nếu chọn type 2)')
+        base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template (Bỏ qua nếu chọn type 2)')
+        base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File (Bỏ qua nếu chọn type 2)')
     }
 
     environment {
