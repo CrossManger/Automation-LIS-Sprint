@@ -159,8 +159,8 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 echo "  2. File Chi tiết Work Items (Tầng 2)"
                                 echo "=========================================="
                                 
-                                export REQUEST_TYPE="${REQUEST_TYPE ?: EXECUTION_MODE}"
-                                export EXECUTION_MODE="${REQUEST_TYPE ?: EXECUTION_MODE}"
+                                export REQUEST_TYPE="${REQUEST_TYPE:-$EXECUTION_MODE}"
+                                export EXECUTION_MODE="${REQUEST_TYPE:-$EXECUTION_MODE}"
                                 export LIS_USERNAME="${LIS_USERNAME}"
                                 export LIS_PASSWORD="${LIS_PASSWORD}"
                                 export SPRINT_NAME="${SPRINT_NAME}"
@@ -170,6 +170,7 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 export ENVIRONMENT="${ENVIRONMENT}"
                                 export ASSIGNEE="${ASSIGNEE}"
                                 export PROJECT_ID="${PROJECT_ID}"
+                                export PROJECT_FILTER="${PROJECT_FILTER}"
                                 export AUTHOR="${LIS_USERNAME}"
                                 export STRUCTURE_FILE="structure_template.xlsx"
                                 export WORK_ITEMS_FILE="work_items_detail.xlsx"
@@ -204,14 +205,15 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     sh '''
                         export PATH="$HOME/.local/bin:$PATH"
                         
+                        export REQUEST_TYPE="${REQUEST_TYPE:-$EXECUTION_MODE}"
+                        export EXECUTION_MODE="${REQUEST_TYPE:-$EXECUTION_MODE}"
+                        
                         # Nếu vừa chạy xong Phase 1 trong chế độ Full process, nghỉ 5 giây để LIS đồng bộ dữ liệu
                         if [ "${REQUEST_TYPE}" = "Full process (1 + 2)" ] || [ "${EXECUTION_MODE}" = "ALL (Phase 1 + Phase 2)" ]; then
                             echo "[*] Đợi 5 giây để dữ liệu hoàn tất đồng bộ trên LIS trước khi lọc..."
                             sleep 5
                         fi
                         
-                        export REQUEST_TYPE="${REQUEST_TYPE ?: EXECUTION_MODE}"
-                        export EXECUTION_MODE="${REQUEST_TYPE ?: EXECUTION_MODE}"
                         export LIS_USERNAME="${LIS_USERNAME}"
                         export LIS_PASSWORD="${LIS_PASSWORD}"
                         export PROJECT_ID="${PROJECT_ID}"
