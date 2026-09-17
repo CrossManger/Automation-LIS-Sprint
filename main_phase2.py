@@ -44,6 +44,7 @@ def run_phase2_pipeline(data_file: str | None = None) -> bool:
         or milestone_data.get("Project ID Importer")
         or "786"
     )
+    proj_filter = os.getenv("PROJECT_FILTER", "").strip() or None
     sprint_name = (
         os.getenv("SPRINT_NAME")
         or os.getenv("NAME_SPRINT")
@@ -61,11 +62,13 @@ def run_phase2_pipeline(data_file: str | None = None) -> bool:
     )
 
     print(f"[*] THÔNG SỐ GIAI ĐOẠN 2:")
-    print(f"  - Project ID:    {proj_id}")
-    print(f"  - Sprint Name:   {sprint_name}")
-    print(f"  - Start Date:    {start_date}")
-    print(f"  - Due Date:      {due_date}")
-    print(f"  - Headless Mode: {config.HEADLESS}")
+    print(f"  - Project ID:     {proj_id}")
+    if proj_filter:
+        print(f"  - Project Filter: {proj_filter}")
+    print(f"  - Sprint Name:    {sprint_name}")
+    print(f"  - Start Date:     {start_date}")
+    print(f"  - Due Date:       {due_date}")
+    print(f"  - Headless Mode:  {config.HEADLESS}")
 
     # 3. Khởi tạo trình duyệt Playwright
     with sync_playwright() as p:
@@ -87,8 +90,7 @@ def run_phase2_pipeline(data_file: str | None = None) -> bool:
             sprint_name=sprint_name,
             start_date=start_date,
             due_date=due_date,
-            proj_name_keyword="MAX",
-            exclude_proj_name="EGG"
+            proj_display_name=proj_filter
         )
 
         if not config.HEADLESS and sys.stdin and sys.stdin.isatty():

@@ -3,32 +3,37 @@ pipeline {
 
     parameters {
         choice(
-            name: 'EXECUTION_MODE',
-            choices: ['ALL (Phase 1 + Phase 2)', 'PHASE_1_ONLY', 'PHASE_2_ONLY'],
-            description: '''Chọn chế độ thực thi:
-• ALL (Phase 1 + Phase 2) (Mặc định): Chạy toàn trình từ A đến Z.
-• PHASE_1_ONLY: Chỉ tạo Sprint và nạp 2 file Excel.
-• PHASE_2_ONLY: Chỉ lọc task và gán Milestone/Sprint (BỎ QUA 2 file Excel và các trường Phase 1).'''
+            name: 'REQUEST_TYPE',
+            choices: [
+                'Full process (1 + 2)',
+                '(1) Create Milestone, Sprint, Parent task and import tasks',
+                '(2) Assign Milestone and Sprint for the tasks created in sprint.'
+            ],
+            description: '''Request type:
+• Full process (1 + 2): Chạy toàn trình từ A đến Z.
+• (1) Create Milestone, Sprint, Parent task and import tasks
+• (2) Assign Milestone and Sprint for the tasks created in sprint.'''
         )
 
         // =========================================================================
-        // NHÓM 1: CÁC TRƯỜNG DÙNG CHO PHASE 2 (VÀ CHUNG CHO CẢ 2 PHASES)
+        // NHÓM 1: CÁC TRƯỜNG DÙNG CHO TYPE (2) (VÀ CHUNG CHO CẢ 2 PHASES)
         // =========================================================================
         string(name: 'LIS_USERNAME', defaultValue: '', description: 'LIS Username')
         password(name: 'LIS_PASSWORD', defaultValue: '', description: 'LIS Password')
-        string(name: 'PROJECT_ID', defaultValue: '', description: 'Project ID On LIS (e.g. 786 for Team MAX)')
+        string(name: 'PROJECT_ID', defaultValue: '786', description: 'Project ID On LIS (786 cho MAX, 83 cho Dev 1, hoặc ID khác)')
+        string(name: 'PROJECT_FILTER', defaultValue: '', description: 'Project Filter On LIS (Bắt buộc nếu ID khác 786/83, vd: ------ MAX, ---------- Dev 1)')
         string(name: 'SPRINT_NAME', defaultValue: '', description: 'Sprint Name')
         string(name: 'START_DATE', defaultValue: '', description: 'Release Start Date (YYYY-MM-DD)')
         string(name: 'DUE_DATE', defaultValue: '', description: 'Release Submission Date (YYYY-MM-DD)')
     
         // =========================================================================
-        // NHÓM 2: CÁC TRƯỜNG CHỈ DÙNG CHO PHASE 1 (BỎ TRỐNG / BỎ QUA KHI CHỌN PHASE 2)
+        // NHÓM 2: CÁC TRƯỜNG CHỈ DÙNG CHO TYPE (1) (BỎ TRỐNG / BỎ QUA KHI CHỌN TYPE (2))
         // =========================================================================
-        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (Bỏ qua nếu chọn PHASE_2_ONLY)')
-        choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type (Bỏ qua nếu chọn PHASE_2_ONLY)')
-        choice(name: 'ENVIRONMENT', choices: ['Production', 'Development', 'Testing', 'Local'], description: 'Environment (Bỏ qua nếu chọn PHASE_2_ONLY)')
-        base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template (Bỏ qua nếu chọn PHASE_2_ONLY)')
-        base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File (Bỏ qua nếu chọn PHASE_2_ONLY)')
+        string(name: 'ASSIGNEE', defaultValue: '', description: 'Assignee (Bỏ qua nếu chọn type (2))')
+        choice(name: 'RELEASE_TYPE', choices: ['Internal', 'External', ''], description: 'Release Type (Bỏ qua nếu chọn type (2))')
+        choice(name: 'ENVIRONMENT', choices: ['Production', 'Development', 'Testing', 'Local'], description: 'Environment (Bỏ qua nếu chọn type (2))')
+        base64File(name: 'STRUCTURE_FILE', description: 'Base Structure Template (Bỏ qua nếu chọn type (2))')
+        base64File(name: 'WORK_ITEMS_FILE', description: 'Work Items File (Bỏ qua nếu chọn type (2))')
     }
 
     environment {
@@ -42,8 +47,9 @@ pipeline {
         stage('1. Kiểm Tra Tính Hợp Lệ Của Tham Số (Validate Parameters)') {
             steps {
                 script {
+                    def reqType = params.REQUEST_TYPE ?: params.EXECUTION_MODE ?: 'Full process (1 + 2)'
                     echo "=========================================="
-                    echo "🔍 Đang kiểm tra thông tin nhập liệu (Chế độ: ${params.EXECUTION_MODE})..."
+                    echo "🔍 Đang kiểm tra thông tin nhập liệu (Request Type: ${reqType})..."
                     echo "=========================================="
                     
                     def missingParams = []
@@ -51,13 +57,20 @@ pipeline {
                     // Các trường bắt buộc dùng chung cho cả 2 Phase
                     if (!params.LIS_USERNAME?.trim()) missingParams.add("LIS_USERNAME (Tài khoản LIS)")
                     if (!params.LIS_PASSWORD?.toString()?.trim()) missingParams.add("LIS_PASSWORD (Mật khẩu LIS)")
-                    if (!params.PROJECT_ID?.trim()) missingParams.add("PROJECT_ID (Project ID ON LIS)")
+                    if (!params.PROJECT_ID?.trim()) {
+                        missingParams.add("PROJECT_ID (Project ID ON LIS)")
+                    } else {
+                        def pid = params.PROJECT_ID.trim()
+                        if (pid != '786' && pid != '83' && !params.PROJECT_FILTER?.trim()) {
+                            missingParams.add("PROJECT_FILTER (Bắt buộc nhập khi PROJECT_ID không phải 786 hoặc 83, ví dụ: ------ TÊN_DỰ_ÁN)")
+                        }
+                    }
                     if (!params.SPRINT_NAME?.trim()) missingParams.add("SPRINT_NAME (Tên Sprint)")
                     if (!params.START_DATE?.trim()) missingParams.add("START_DATE (Release Start Date)")
                     if (!params.DUE_DATE?.trim()) missingParams.add("DUE_DATE (Release Submission Date)")
                     
-                    // Trường bắt buộc khi chạy Phase 1 hoặc ALL
-                    if (params.EXECUTION_MODE != 'PHASE_2_ONLY') {
+                    // Trường bắt buộc khi chạy Type (1) hoặc Full process (Type (2) bỏ qua hoàn toàn)
+                    if (!reqType.startsWith('(2)') && reqType != 'PHASE_2_ONLY') {
                         if (!params.ASSIGNEE?.trim()) missingParams.add("ASSIGNEE (Người phụ trách Parent Task)")
                     }
                     
@@ -106,7 +119,10 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
 
         stage('3. Thực Thi Phase 1 (Sprint Setup & Excel Import)') {
             when {
-                expression { params.EXECUTION_MODE == 'ALL (Phase 1 + Phase 2)' || params.EXECUTION_MODE == 'PHASE_1_ONLY' }
+                expression {
+                    def req = params.REQUEST_TYPE ?: params.EXECUTION_MODE ?: ''
+                    return req.contains('Full process') || req.startsWith('(1)') || req == 'ALL (Phase 1 + Phase 2)' || req == 'PHASE_1_ONLY'
+                }
             }
             steps {
                 script {
@@ -143,6 +159,8 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                                 echo "  2. File Chi tiết Work Items (Tầng 2)"
                                 echo "=========================================="
                                 
+                                export REQUEST_TYPE="${REQUEST_TYPE ?: EXECUTION_MODE}"
+                                export EXECUTION_MODE="${REQUEST_TYPE ?: EXECUTION_MODE}"
                                 export LIS_USERNAME="${LIS_USERNAME}"
                                 export LIS_PASSWORD="${LIS_PASSWORD}"
                                 export SPRINT_NAME="${SPRINT_NAME}"
@@ -167,7 +185,10 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
 
         stage('4. Thực Thi Phase 2 (Task Filtering & Bulk Assign Milestone/Sprint)') {
             when {
-                expression { params.EXECUTION_MODE == 'ALL (Phase 1 + Phase 2)' || params.EXECUTION_MODE == 'PHASE_2_ONLY' }
+                expression {
+                    def req = params.REQUEST_TYPE ?: params.EXECUTION_MODE ?: ''
+                    return req.contains('Full process') || req.startsWith('(2)') || req == 'ALL (Phase 1 + Phase 2)' || req == 'PHASE_2_ONLY'
+                }
             }
             steps {
                 script {
@@ -183,15 +204,18 @@ Vui lòng điền đầy đủ các trường sau trên giao diện Build with P
                     sh '''
                         export PATH="$HOME/.local/bin:$PATH"
                         
-                        # Nếu vừa chạy xong Phase 1 trong chế độ ALL, nghỉ 5 giây để LIS đồng bộ dữ liệu
-                        if [ "${EXECUTION_MODE}" = "ALL (Phase 1 + Phase 2)" ]; then
+                        # Nếu vừa chạy xong Phase 1 trong chế độ Full process, nghỉ 5 giây để LIS đồng bộ dữ liệu
+                        if [ "${REQUEST_TYPE}" = "Full process (1 + 2)" ] || [ "${EXECUTION_MODE}" = "ALL (Phase 1 + Phase 2)" ]; then
                             echo "[*] Đợi 5 giây để dữ liệu hoàn tất đồng bộ trên LIS trước khi lọc..."
                             sleep 5
                         fi
                         
+                        export REQUEST_TYPE="${REQUEST_TYPE ?: EXECUTION_MODE}"
+                        export EXECUTION_MODE="${REQUEST_TYPE ?: EXECUTION_MODE}"
                         export LIS_USERNAME="${LIS_USERNAME}"
                         export LIS_PASSWORD="${LIS_PASSWORD}"
                         export PROJECT_ID="${PROJECT_ID}"
+                        export PROJECT_FILTER="${PROJECT_FILTER}"
                         export SPRINT_NAME="${SPRINT_NAME}"
                         export START_DATE="${START_DATE}"
                         export DUE_DATE="${DUE_DATE}"

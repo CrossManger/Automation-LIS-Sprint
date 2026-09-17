@@ -990,17 +990,18 @@ def filter_and_assign_sprint_milestone(
     sprint_name: str,
     start_date: str,
     due_date: str,
-    proj_name_keyword: str = "MAX",
-    exclude_proj_name: str | None = "EGG"
+    proj_name_keyword: str | None = None,
+    proj_display_name: str | None = None,
+    exclude_proj_name: str = "EGG"
 ) -> bool:
     """
     Điều phối trọn vẹn quy trình Giai đoạn 2 (Phase 2):
       1. Điều hướng đến trang Tasks (/issues?id={proj_id}&set_filter=0).
-      2. Mở vùng bộ lọc Filters.
+      2. Mở vùng bộ lọc Filters (luôn loại bỏ tag EGG từ đầu).
       3. Thêm bộ lọc 'Start date' và 'Due date'.
       4. Điền dải ngày cho Start date và Due date.
-      5. Xóa tag dự án loại trừ / không khớp.
-      6. Tìm kiếm và chọn dự án mục tiêu (proj_name_keyword).
+      5. Xóa tag dự án loại trừ (EGG) và các tag không khớp.
+      6. Tìm kiếm và chọn dự án mục tiêu (786: '------ MAX', 83: '---------- Dev 1', hoặc tùy biến qua PROJECT_FILTER).
       7. Áp dụng bộ lọc (Apply settings).
       8. Cuộn nạp tất cả tasks và chọn tất cả.
       9. Mở Context Menu và gán Target Milestone.
@@ -1011,7 +1012,38 @@ def filter_and_assign_sprint_milestone(
     print("🚀 BẮT ĐẦU THỰC THI GIAI ĐOẠN 2 (PHASE 2 - SPRINT & MILESTONE)")
     print("=" * 65)
 
-    tasks_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues?id={proj_id}&set_filter=0&per_page=100"
+    # Cấu hình mapping dự án tự động theo Project ID hoặc tùy biến qua PROJECT_FILTER
+    clean_proj_id = str(proj_id).strip()
+    custom_filter = (proj_display_name or os.getenv("PROJECT_FILTER", "")).strip() or None
+
+    project_configs = {
+        "786": {
+            "keyword": "MAX",
+            "display_name": "------ MAX",
+            "exclude": "EGG"
+        },
+        "83": {
+            "keyword": "Dev 1",
+            "display_name": "---------- Dev 1",
+            "exclude": "EGG"
+        }
+    }
+
+    if custom_filter:
+        target_display = custom_filter
+        target_keyword = proj_name_keyword or custom_filter.lstrip("-").strip()
+    elif clean_proj_id in project_configs:
+        cfg = project_configs[clean_proj_id]
+        target_display = cfg["display_name"]
+        target_keyword = proj_name_keyword or cfg["keyword"]
+    else:
+        target_display = f"------ {proj_name_keyword or clean_proj_id}"
+        target_keyword = proj_name_keyword or clean_proj_id
+
+    # Luôn luôn loại trừ EGG cho tất cả các dự án từ đầu
+    target_exclude = exclude_proj_name or "EGG"
+
+    tasks_url = f"{config.LIS_HOME_URL.rstrip('/')}/issues?id={clean_proj_id}&set_filter=0&per_page=100"
     print(f"\n[*] [Bước 1] Mở trang danh sách tasks: {tasks_url}...")
     safe_goto(page, tasks_url)
     page.wait_for_load_state("networkidle")
@@ -1030,7 +1062,21 @@ def filter_and_assign_sprint_milestone(
                 filters_btn.click()
             except Exception:
                 filters_btn.click(force=True)
-        time.sleep(1)
+            try:
+                add_filter_select.wait_for(state="visible", timeout=5000)
+            except Exception:
+                time.sleep(1)
+
+    # Loại trừ EGG ngay từ đầu khi mở filters
+    page.evaluate(f"""() => {{
+        const delBtns = document.querySelectorAll("#values_project_id_entity_array .icon-del");
+        delBtns.forEach(btn => {{
+            const tagText = (btn.parentElement ? btn.parentElement.innerText : '').trim();
+            if (tagText.toUpperCase().includes('{target_exclude.upper()}')) {{
+                btn.click();
+            }}
+        }});
+    }}""")
 
     # Thêm bộ lọc Start date và Due date
     print("\n[*] [Bước 3 & 4] Thêm bộ lọc 'Start date' và 'Due date'...")
@@ -1076,13 +1122,13 @@ def filter_and_assign_sprint_milestone(
     fill_date_filter_range(page, "start_date", start_date)
     fill_date_filter_range(page, "due_date", due_date)
 
-    # Xóa các tag dự án mặc định không khớp khỏi bộ lọc
-    print(f"\n[*] [Bước 7] Dọn dẹp các thẻ dự án khác khỏi bộ lọc...")
+    # Xóa các tag dự án mặc định không khớp khỏi bộ lọc (luôn loại trừ EGG)
+    print(f"\n[*] [Bước 7] Dọn dẹp các thẻ dự án khác khỏi bộ lọc (luôn loại bỏ '{target_exclude}')...")
     page.evaluate(f"""() => {{
         const delBtns = document.querySelectorAll("#values_project_id_entity_array .icon-del");
         delBtns.forEach(btn => {{
-            const tagText = btn.parentElement ? btn.parentElement.innerText.trim() : '';
-            if (!tagText.includes('{proj_name_keyword}')) {{
+            const tagText = (btn.parentElement ? btn.parentElement.innerText : '').trim();
+            if (tagText.toUpperCase().includes('{target_exclude.upper()}') || !tagText.includes('{target_keyword}')) {{
                 btn.click();
             }}
         }});
@@ -1092,17 +1138,19 @@ def filter_and_assign_sprint_milestone(
     # Chọn dự án mục tiêu (nếu chưa có trong entity array)
     already_selected = page.evaluate(f"""() => {{
         const container = document.getElementById("values_project_id_entity_array");
-        return container ? container.innerText.includes('{proj_name_keyword}') : false;
+        if (!container) return false;
+        const text = container.innerText || '';
+        return text.includes('{target_keyword}') && !text.toUpperCase().includes('{target_exclude.upper()}');
     }}""")
 
     if not already_selected:
-        print(f"\n[*] [Bước 8] Chọn dự án '{proj_name_keyword}' trong bộ lọc...")
+        print(f"\n[*] [Bước 8] Chọn dự án '{target_keyword}' ('{target_display}') trong bộ lọc...")
         # 1. Thử add trực tiếp qua entityArray nếu có
         added_via_js = page.evaluate(f"""() => {{
             try {{
                 const el = (window.jQuery || window.$)('#values_project_id_entity_array');
                 if (el && typeof el.entityArray === 'function') {{
-                    el.entityArray("add", {{ id: '{proj_id}', name: '------ {proj_name_keyword}' }});
+                    el.entityArray("add", {{ id: '{clean_proj_id}', name: '{target_display}' }});
                     return true;
                 }}
             }} catch(e) {{}}
@@ -1113,13 +1161,24 @@ def filter_and_assign_sprint_milestone(
             proj_input = page.locator("#values_project_id_autocomplete")
             proj_input.wait_for(state="visible", timeout=5000)
             proj_input.click()
-            proj_input.fill(f"------ {proj_name_keyword}")
+            proj_input.fill(target_display)
             time.sleep(1)
 
-            matched_item = page.locator(f"ul.ui-autocomplete:visible li:has-text('{proj_name_keyword}')").first
+            matched_item = page.locator(f"ul.ui-autocomplete:visible li:has-text('{target_keyword}')").first
             if matched_item.count() > 0:
                 matched_item.click()
                 time.sleep(0.5)
+
+        # Quét dọn dứt điểm tag EGG sau khi thêm dự án mới
+        page.evaluate(f"""() => {{
+            const delBtns = document.querySelectorAll("#values_project_id_entity_array .icon-del");
+            delBtns.forEach(btn => {{
+                const tagText = (btn.parentElement ? btn.parentElement.innerText : '').trim();
+                if (tagText.toUpperCase().includes('{target_exclude.upper()}')) {{
+                    btn.click();
+                }}
+            }});
+        }}""")
 
     # Áp dụng bộ lọc
     print("\n[*] [Bước 9] Nhấp 'Apply settings'...")
@@ -1138,7 +1197,7 @@ def filter_and_assign_sprint_milestone(
         print("\n[!] CẢNH BÁO: Bảng không có công việc nào (0/0 tasks) thỏa mãn bộ lọc:")
         print(f"    - Ngày bắt đầu (Start Date): {start_date}")
         print(f"    - Ngày kết thúc (Due Date):  {due_date}")
-        print(f"    - Dự án: {proj_name_keyword} (#{proj_id})")
+        print(f"    - Dự án: {target_keyword} (#{clean_proj_id})")
         print("    Vui lòng kiểm tra lại tham số ngày/dự án trên Jenkins hoặc danh sách tasks trên LIS!")
         return False
 
